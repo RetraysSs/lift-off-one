@@ -1,52 +1,55 @@
-import { forwardRef, useImperativeHandle, useRef } from "react";
-import { ScanLine } from "lucide-react";
-import { MockSkeleton } from "@/components/MockSkeleton";
-import { SetupGuide } from "@/components/SetupGuide";
-import { Badge } from "@/components/ui/badge";
+import { forwardRef, useImperativeHandle, useRef, type ReactNode } from "react";
+
 export interface StageHandle {
   video: HTMLVideoElement | null;
   canvas: HTMLCanvasElement | null;
 }
 export interface StageProps {
+  /** Mirror video and overlay together (front camera in live mode only). */
   mirrored: boolean;
-  showSetup: boolean;
-  onDismissSetup: () => void;
+  /** Show native playback controls (uploaded or recorded clips). */
+  controls?: boolean;
+  /** Floating chrome drawn over the video (not mirrored). */
+  children?: ReactNode;
 }
+
+/**
+ * Video + pose overlay. Both elements stay mounted so hooks can attach streams and draw
+ * through the forwarded handle; the canvas is resized to the video's pixel size by the
+ * drawing loop so landmarks line up under `object-fit: contain`.
+ */
 export const Stage = forwardRef<StageHandle, StageProps>(function Stage(
-  { mirrored, showSetup, onDismissSetup },
+  { mirrored, controls = false, children },
   ref,
 ) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  useImperativeHandle(ref, () => ({ video: videoRef.current, canvas: canvasRef.current }));
+  useImperativeHandle(ref, () => ({
+    get video() {
+      return videoRef.current;
+    },
+    get canvas() {
+      return canvasRef.current;
+    },
+  }));
   return (
-    <div className="relative">
-      <div className="stage-frame">
-        <div className={`stage-media ${mirrored ? "-scale-x-100" : ""}`}>
-          <video ref={videoRef} playsInline muted aria-label="Player video" />
-          <canvas ref={canvasRef} width={800} height={450} aria-label="Pose analysis overlay" />
-          <MockSkeleton />
-        </div>
-        <div className="absolute top-4 left-4 right-4 flex justify-between gap-2">
-          <Badge variant="preview">
-            <ScanLine size={13} /> Pose preview
-          </Badge>
-          <span className="text-stage-muted text-xs flex items-center gap-1.5">
-            <span className="size-1.5 rounded-full bg-pass" />
-            {mirrored ? "Mirrored view" : "Video view"}
-          </span>
-        </div>
-        <div
-          className={`absolute top-[65%] ${mirrored ? "left-[21%]" : "right-[21%]"} text-fail text-xs font-medium border border-fail/40 rounded px-2 py-1 bg-stage-surface`}
-        >
-          Knees bent <span className="opacity-70">172°</span>
-        </div>
-        <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between text-stage-muted text-[11px]">
-          <span>FULL BODY TRACKING</span>
-          <span>16:9</span>
-        </div>
+    <div className="stage-frame">
+      <div className={`stage-media ${mirrored ? "mirrored" : ""}`}>
+        <video ref={videoRef} playsInline muted controls={controls} aria-label="Player video" />
+        <canvas ref={canvasRef} width={720} height={1280} aria-label="Pose analysis overlay" />
       </div>
-      <SetupGuide visible={showSetup} onDismiss={onDismissSetup} />
+      {children}
     </div>
   );
 });
+
+/** Matches the overlay canvas to the video's intrinsic size. Returns the frame aspect. */
+export function syncCanvas(video: HTMLVideoElement, canvas: HTMLCanvasElement) {
+  const w = video.videoWidth;
+  const h = video.videoHeight;
+  if (w && h && (canvas.width !== w || canvas.height !== h)) {
+    canvas.width = w;
+    canvas.height = h;
+  }
+  return w && h ? w / h : 16 / 9;
+}

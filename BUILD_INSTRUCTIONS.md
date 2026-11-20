@@ -1,31 +1,61 @@
-# Badminton Form Coach — developer handoff
+# Lift Off — developer handoff
 
-## Prototype boundaries
+Lift Off is a mobile-first badminton form coach. It tracks the player's pose in the browser
+with MediaPipe, scores the ready stance and the overhead clear, and keeps a local practice
+history. There is no backend: video, landmarks and history never leave the device.
 
-This is a single-page, frontend-only shell. All scores, checks, skeletons, and reports are mock data. No camera permission is requested, no video is played or analysed, no frames are captured, and no model is downloaded. Uploading validates the MIME type and shows mock results after two seconds; the selected file is not sent anywhere. Camera controls change UI state only. Recording uses a 3–2–1 countdown followed by a fake five-second recording and returns `null`.
+## What runs where
 
-## Routing exception
+- **Pose model**: `@mediapipe/tasks-vision` (pinned to an exact version). The JS is bundled and
+  imported lazily on the client; the WASM loads from jsDelivr and the `pose_landmarker_lite`
+  model from Google's MediaPipe bucket (`src/engine/config.ts`). Keep `MEDIAPIPE_VERSION` equal
+  to the installed package version or the WASM will not match.
+- **Camera / recording**: `getUserMedia` and `MediaRecorder`. The camera needs https (or
+  localhost).
+- **Storage**: `localStorage` keys `liftoff.sessions.v1` and `liftoff.settings.v1`. Snapshots are
+  stripped before saving to keep sessions small.
 
-This project uses TanStack Start with React 19. The requested `src/pages/Index.tsx` is implemented in **`src/routes/index.tsx`**, the template's required home route. Do not introduce a second router or a `src/pages` directory. All other requested component, hook, and engine paths are preserved.
+## Routing
 
-## Integration points
+TanStack Start with React 19. The whole app is the single route **`src/routes/index.tsx`**; tabs
+(Home, Progress, Train, Profile) and the report overlay are client state in that route. Do not add
+a second router or a `src/pages` directory.
 
-- `src/engine/types.ts`: requested exact public types; preserve their contracts.
-- `src/engine/config.ts`: stub status-color exports. Corresponding OKLCH tokens live in `src/styles.css`.
-- `src/hooks/usePoseLandmarker.ts`: replace the fake 1.5-second loading delay with real loading and error state handling.
-- `src/hooks/useCamera.ts`: replace state-only start/stop with capture and stream cleanup. Returns `{ cameraOn, start, stop, error }`.
-- `src/hooks/useRecorder.ts`: replace the fake countdown/recording with recording of actual video. Returns `{ recording, countdown, record }`; `record` resolves a `Blob | null`.
-- `src/components/Stage.tsx`: forwarded `StageHandle` exposes `{ video: HTMLVideoElement | null, canvas: HTMLCanvasElement | null }`. Both elements remain mounted; assign video streams and draw the overlay through these refs. Current canvas logical size is 800×450; synchronize the real canvas to the video dimensions. Mirroring applies to video, canvas and preview together only in live mode.
-- `src/components/MockSkeleton.tsx`: inline SVG mock; remove when real canvas drawing is available.
-- `src/mock/mockData.ts`: sample stance/clear analysis and two-swing report. Replace use of these fixtures in the page with real results.
-- `Controls`, `SetupGuide`, `FeedbackPanel`, `SwingVerdict`, `Report`, and `ErrorAlert`: requested props are preserved and exported as named components. `Stage` additionally exports `StageHandle` and `StageProps`.
+## Layout of the code
 
-## State and future analysis
+- `src/engine/` — framework-free analysis. Keep `types.ts` contracts stable.
+  - `pose.ts` landmark indices, geometry, visibility helpers.
+  - `analysis.ts` stance checks (knees, feet, racket up, weight forward) and clear checks
+    (side-on, free arm, elbow high, extension, contact height); `scoreChecks` = % of measured
+    checks passing. Unseen joints produce `skip`, never `fail`.
+  - `swings.ts` overhead-swing detection from racket-wrist height (peak = contact, lowest point in
+    the preceding window = preparation).
+  - `report.ts` builds `ReportData` from a frame sequence; `live.ts` summarises a live session.
+  - `video.ts` seeks through a file at `ANALYSIS_FPS`, runs detection, then captures snapshots.
+    Handles MediaRecorder WebM files that report `Infinity` duration.
+  - `detector.ts` MediaPipe wrapper (GPU, falls back to CPU) with monotonic timestamps.
+  - `draw.ts` canvas skeleton coloured by check status, using `COLORS` from `config.ts`.
+  - Thresholds live in `THRESHOLDS` / `SWING`; tune them there.
+- `src/hooks/` — `usePoseLandmarker` (shared detector, retry), `useCamera` (stream lifecycle,
+  facing mode, wake lock, readable errors), `useRecorder` (3-2-1 countdown, returns a `Blob`),
+  `useLiveCoach` (per-frame loop, in-form timer, sampling, live swing detection with snapshots
+  from `lib/frameRing.ts`), `useAppData` (sessions & settings).
+- `src/components/` — UI. `Stage` keeps the `<video>` and `<canvas>` mounted and exposes them via
+  `StageHandle`; mirroring applies to both, only for the front camera in live mode.
+  `screens/TrainScreen.tsx` owns the live / record / upload flows.
+- `src/mock/mockData.ts` — now only powers the "Example report".
+- Visual tokens are in `src/styles.css` (lime surround, lavender primary, Orbitron display type).
 
-The index route owns `mode`, `move`, `handedness`, `showSetup`, `analysis`, `report`, `analysing`, and `error`. The move selector updates the feedback fixture. Upload mode supports file selection, dropping a video, or trying a sample. Stance produces a stance report; overhead clear produces the two-swing report. For real recording, feed the returned Blob into analysis instead of setting the sample-complete notice. The current handedness switch changes state but cannot affect mock analysis.
+## Flows
 
-Wire camera/model/file failures to `ErrorAlert`. Retry must invoke the failing operation when real integrations exist. `Report` already supports `swings: []` for no-swing detection and optional image URLs/dataURLs for snapshots. The header help button shows the example whole-body warning. Setup text remains dismissible before camera start.
+1. **Live**: Start camera → skeleton + live checks, score pill, in-form timer (stance) or swing
+   count (clear). Pause stops analysis; the square button ends the session and saves a report.
+2. **Record**: the round button records `settings.recordSeconds` after a countdown, then the clip
+   is analysed like an upload and saved.
+3. **Upload**: choose/drop a video (first 90 s analysed). The clip then plays back in the stage
+   with the analysed skeleton overlaid.
 
 ## Development
 
-Install with `bun install`, run locally with `bun run dev`, and run tests with `bunx vitest run`. No backend, auth, analytics, MediaPipe or ML dependency has been added. Future developer additions should be explicitly scoped rather than automatically enabling a backend.
+`bun install`, `bun run dev`, `bunx vitest run`, `bun run build`. Engine tests use synthetic
+poses in `src/test/fixtures.ts`; add a fixture when changing a threshold.

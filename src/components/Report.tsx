@@ -1,99 +1,110 @@
-import { RotateCcw, ScanLine, TriangleAlert } from "lucide-react";
+import { ChevronDown, TriangleAlert } from "lucide-react";
 import type { ReportData } from "@/engine/types";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Score, CheckList, measuredValue } from "@/components/FeedbackPanel";
+import { combineAnalyses } from "@/engine/analysis";
+import { Score, CheckList, TipCard, measuredValue } from "@/components/FeedbackPanel";
 import { Snapshot } from "@/components/SwingVerdict";
-export function Report({
-  report,
-  analysing,
-  onReset,
-}: {
-  report: ReportData | null;
-  analysing: boolean;
-  onReset: () => void;
-}) {
-  if (analysing)
-    return (
-      <div className="py-16 text-center" role="status">
-        <ScanLine className="mx-auto text-primary mb-4" size={30} />
-        <h3 className="font-display font-semibold text-lg">Analysing…</h3>
-        <Progress value={65} className="max-w-48 mx-auto mt-4" />
-        <p className="text-sm text-muted-foreground mt-3">
-          Checking your posture and swing moments
-        </p>
-      </div>
-    );
-  if (!report)
-    return (
-      <div className="py-12 text-center">
-        <div className="mx-auto size-12 bg-accent text-primary rounded-lg flex items-center justify-center mb-4">
-          <ScanLine size={24} />
-        </div>
-        <h3 className="font-display font-semibold text-lg">Your video report</h3>
-        <p className="text-sm text-muted-foreground mt-2">No video selected</p>
-      </div>
-    );
+
+const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
+
+export function Report({ report }: { report: ReportData }) {
+  const all =
+    report.move === "stance"
+      ? report.stance
+      : report.swings.length
+        ? combineAnalyses(...report.swings.flatMap((s) => [s.prep, s.contact]))
+        : null;
+  const topTip = all?.checks.find((c) => c.status === "fail");
   return (
     <div className="fade-in">
-      <Score value={report.score} />
+      <div className="tile p-5">
+        <Score
+          value={report.score}
+          label={report.move === "clear" ? "Average swing score" : "Stance score"}
+        />
+      </div>
+      {topTip && (
+        <div className="mt-4">
+          <TipCard check={topTip} />
+        </div>
+      )}
+
       {report.move === "stance" && report.stance && (
-        <div className="mt-6">
+        <section className="tile p-4 mt-4">
           <h3 className="font-semibold text-sm mb-3">Ready stance</h3>
           <Snapshot
             {...(report.stanceSnapshot ? { src: report.stanceSnapshot } : {})}
             label="Stance snapshot"
           />
           <CheckList analysis={report.stance} />
-        </div>
+        </section>
       )}
+
       {report.move === "clear" &&
         (report.swings.length === 0 ? (
-          <Alert className="mt-6" variant="warning">
-            <TriangleAlert size={16} />
-            <AlertDescription>
-              No swing detected. Try recording side-on with your whole body in frame.
-            </AlertDescription>
-          </Alert>
+          <div className="mt-4 rounded-2xl bg-warning-soft text-warning p-4 flex gap-3 text-sm">
+            <TriangleAlert size={18} className="shrink-0" />
+            <p>
+              No swing detected. Stand side-on with your whole body in frame and swing your racket
+              arm fully above your head.
+            </p>
+          </div>
         ) : (
-          report.swings.map((swing) => (
-            <Card key={swing.index} className="p-4 mt-5">
-              <div className="flex justify-between items-center mb-3">
-                <h3 className="font-semibold text-sm">Swing {swing.index}</h3>
-                <span className="text-sm text-primary font-semibold">
-                  {swing.score ?? "–"} / 100
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <Snapshot
-                  {...(swing.prepSnapshot ? { src: swing.prepSnapshot } : {})}
-                  label="Preparation"
-                />
-                <Snapshot
-                  {...(swing.contactSnapshot ? { src: swing.contactSnapshot } : {})}
-                  label="Contact"
-                />
-              </div>
-              <ul className="mt-4 space-y-4">
-                {swing.contact.checks
-                  .filter((c) => c.status === "fail")
-                  .map((check) => (
-                    <li key={check.id}>
-                      <p className="text-sm font-medium leading-relaxed">{check.tip}</p>
-                      <p className="text-fail text-xs mt-1">
-                        {measuredValue(check)} · target {check.target}
-                      </p>
-                    </li>
-                  ))}
-              </ul>
-            </Card>
-          ))
+          report.swings.map((swing) => {
+            const verdict = combineAnalyses(swing.prep, swing.contact);
+            const fails = verdict.checks.filter((c) => c.status === "fail");
+            return (
+              <section key={swing.index} className="tile p-4 mt-4">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="font-semibold text-sm">
+                    Swing {swing.index}
+                    <span className="text-muted-foreground font-normal ml-2 text-xs">
+                      at {seconds(swing.contactTimeMs)}
+                    </span>
+                  </h3>
+                  <span className="display text-sm text-violet font-semibold">
+                    {swing.score ?? "–"} / 100
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <Snapshot
+                    {...(swing.prepSnapshot ? { src: swing.prepSnapshot } : {})}
+                    label="Preparation"
+                  />
+                  <Snapshot
+                    {...(swing.contactSnapshot ? { src: swing.contactSnapshot } : {})}
+                    label="Contact"
+                  />
+                </div>
+                {fails.length > 0 ? (
+                  <ul className="mt-4 space-y-3">
+                    {fails.map((check) => (
+                      <li key={check.id}>
+                        <p className="text-sm font-medium leading-relaxed">{check.tip}</p>
+                        <p className="text-fail text-xs mt-0.5">
+                          {check.name}: {measuredValue(check)} · target {check.target}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-4 text-sm text-pass font-medium">
+                    Every measured check on target.
+                  </p>
+                )}
+                <details className="group mt-3">
+                  <summary className="text-xs font-semibold text-violet cursor-pointer list-none flex items-center gap-1">
+                    All checks
+                    <ChevronDown size={14} className="transition-transform group-open:rotate-180" />
+                  </summary>
+                  <p className="eyebrow mt-3">Preparation</p>
+                  <CheckList analysis={swing.prep} />
+                  <p className="eyebrow mt-2">Contact</p>
+                  <CheckList analysis={swing.contact} />
+                </details>
+              </section>
+            );
+          })
         ))}
-      <Button variant="outline" className="mt-6 w-full" onClick={onReset}>
-        <RotateCcw /> Analyse another video
-      </Button>
     </div>
   );
 }
