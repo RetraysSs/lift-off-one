@@ -98,3 +98,49 @@ export function occludedSwingFrames(peaks: number[], durationMs: number, fps = 3
   }
   return frames;
 }
+
+export interface ClearOptions {
+  fps?: number;
+  /** Highest racket-wrist y at contact (image top is 0; nose is at 0.15). */
+  peakY?: number;
+  /** MediaPipe labels the arms the wrong way round (racket motion on the left wrist). */
+  swapArms?: boolean;
+  /** Racket-side shoulder hidden behind the body. */
+  hideRacketShoulder?: boolean;
+}
+
+/**
+ * Side-on overhead clears for a right-handed player, as a phone sees them: far shoulder
+ * and hip partly hidden, wrist blurred, and when `peakY` < 0 the racket hand leaves the
+ * top of the frame (MediaPipe then reports it with very low visibility).
+ */
+export function clearFrames(peaks: number[], durationMs: number, opts: ClearOptions = {}): Frame[] {
+  const { fps = 30, peakY = 0.02, swapArms = false, hideRacketShoulder = false } = opts;
+  const frames: Frame[] = [];
+  for (let t = 0; t <= durationMs; t += 1000 / fps) {
+    let y = 0.36;
+    for (const p of peaks) {
+      if (t >= p - 400 && t <= p) y = Math.min(y, 0.36 - ((t - (p - 400)) / 400) * (0.36 - peakY));
+      else if (t > p && t <= p + 300) y = Math.min(y, peakY + ((t - p) / 300) * (0.36 - peakY));
+    }
+    const lm = sidePose(y).map((l, i) => {
+      // Side-on one body side is hidden: normally the free (left) side; with
+      // `hideRacketShoulder` the racket side faces away instead.
+      const far = hideRacketShoulder ? [12, 24] : [11, 23];
+      if (far.includes(i)) return { ...l, visibility: hideRacketShoulder ? 0.2 : 0.3 };
+      if (i === 16) return { ...l, visibility: y < 0 ? 0.05 : 0.4 };
+      return l;
+    });
+    if (swapArms) {
+      // When MediaPipe mixes up left and right it swaps every left/right landmark pair.
+      for (let a = 11; a <= 31; a += 2) {
+        const b = a + 1;
+        const tmp = lm[a]!;
+        lm[a] = lm[b]!;
+        lm[b] = tmp;
+      }
+    }
+    frames.push({ t, lm });
+  }
+  return frames;
+}

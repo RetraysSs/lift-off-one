@@ -11,7 +11,7 @@ import {
 } from "@/engine/analysis";
 import { drawPose } from "@/engine/draw";
 import { wholeBodyVisible } from "@/engine/pose";
-import { detectSwings, SWING } from "@/engine/swings";
+import { findSwings, SWING } from "@/engine/swings";
 import type { LiveSample } from "@/engine/live";
 import { FrameRing } from "@/lib/frameRing";
 
@@ -80,7 +80,7 @@ export function useLiveCoach({
 
   useEffect(() => {
     if (!active || !detector) return;
-    ring.current ??= new FrameRing(60);
+    ring.current ??= new FrameRing(75);
     const overlay = stageRef.current?.canvas;
     const buffer: Frame[] = [];
     sessionStart.current ??= performance.now();
@@ -148,19 +148,21 @@ export function useLiveCoach({
         ring.current?.push(video, t);
         if (t - lastSwingCheck >= SWING_CHECK_MS) {
           lastSwingCheck = t;
-          for (const s of detectSwings(buffer, handedness, aspect)) {
+          // Same detector as clip reports (incl. the other-arm fallback) so they agree.
+          const found = findSwings(buffer, handedness, aspect);
+          for (const s of found.swings) {
             const contact = buffer[s.contactIndex];
             const prepFrame = buffer[s.prepIndex];
             if (!contact || !prepFrame) continue;
             // Wait until the peak window has passed so the contact is final.
             if (
               contact.t <= lastContact + SWING.minGapMs ||
-              t - contact.t < SWING.peakWindowMs + 50
+              t - contact.t < SWING.followThroughMs + 50
             )
               continue;
             lastContact = contact.t;
-            const prep = analyseClearPrep(prepFrame.lm, handedness, aspect);
-            const hit = analyseClearContact(contact.lm, handedness, aspect);
+            const prep = analyseClearPrep(prepFrame.lm, found.handedness, aspect);
+            const hit = analyseClearContact(contact.lm, found.handedness, aspect);
             const prepSnapshot = ring.current?.snapshot(prepFrame.t, prepFrame.lm, prep, mirrored);
             const contactSnapshot = ring.current?.snapshot(contact.t, contact.lm, hit, mirrored);
             swings.current = [

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Camera,
+  Check,
   Pause,
   Play,
   RefreshCw,
@@ -11,7 +12,7 @@ import {
   ScanLine,
   Sparkles,
 } from "lucide-react";
-import type { Frame, Mode, Move, ReportData } from "@/engine/types";
+import type { Frame, Mode, Move, ReportData, SwingReport } from "@/engine/types";
 import { Stage, syncCanvas, type StageHandle } from "@/components/Stage";
 import { StatPill } from "@/components/StatPill";
 import { SetupGuide } from "@/components/SetupGuide";
@@ -80,6 +81,7 @@ export function TrainScreen({
   const [dragging, setDragging] = useState(false);
   // Swing count at the start of the current recording; null when not recording.
   const [clipBase, setClipBase] = useState<number | null>(null);
+  const [flash, setFlash] = useState<SwingReport | null>(null);
 
   const stageRef = useRef<StageHandle>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -104,6 +106,15 @@ export function TrainScreen({
     setMove(intent.move);
     setMode(intent.mode);
   }, [intent.key, intent.move, intent.mode]);
+
+  // Flash each newly detected swing for a moment.
+  const newest = coach.swings[coach.swings.length - 1];
+  useEffect(() => {
+    if (!newest) return;
+    setFlash(newest);
+    const id = setTimeout(() => setFlash(null), 2500);
+    return () => clearTimeout(id);
+  }, [newest]);
 
   // Session clock.
   useEffect(() => {
@@ -295,10 +306,9 @@ export function TrainScreen({
   const shownSwings = clipBase === null ? coach.swings : coach.swings.slice(clipBase);
   const lastSwing = shownSwings[shownSwings.length - 1];
   const lastVerdict = lastSwing ? combineAnalyses(lastSwing.prep, lastSwing.contact) : null;
-  const liveScore =
-    move === "clear"
-      ? (lastSwing?.score ?? coach.analysis?.score ?? null)
-      : (coach.analysis?.score ?? null);
+  // In clear mode the pill only ever shows a detected swing's score; the posture checks
+  // between swings live in the sheet, so the two can't be mistaken for each other.
+  const liveScore = move === "clear" ? (lastSwing?.score ?? null) : (coach.analysis?.score ?? null);
   const measured = coach.analysis?.checks.filter((c) => c.status !== "skip") ?? [];
   const passing = measured.filter((c) => c.status === "pass").length;
 
@@ -387,12 +397,27 @@ export function TrainScreen({
           )}
         </div>
 
+        {/* Confirms each swing the moment it is recognised */}
+        {live && flash && (
+          <div
+            key={flash.index}
+            role="status"
+            className="absolute left-1/2 -translate-x-1/2 top-[22%] glass rounded-full pl-2 pr-4 py-1.5 flex items-center gap-2 text-sm font-semibold fade-in pointer-events-none"
+          >
+            <span className="size-6 rounded-full bg-pass text-white grid place-items-center">
+              <Check size={14} strokeWidth={3} />
+            </span>
+            Swing detected
+            <span className="display text-primary">{flash.score ?? "–"}</span>
+          </div>
+        )}
+
         {/* Score pill */}
         {live && camera.cameraOn && (
           <div className="absolute right-4 top-[30%] pointer-events-none">
             <StatPill
               score={paused ? null : liveScore}
-              label={move === "clear" && lastSwing ? "Swing" : "Form"}
+              label={move === "clear" ? "Swing" : "Form"}
             />
           </div>
         )}

@@ -10,6 +10,11 @@ export const POSE_MODEL_URL =
 
 /** Landmarks below this visibility are treated as unseen. */
 export const MIN_VISIBILITY = 0.5;
+/**
+ * The racket wrist moves fast at contact, so it is often motion-blurred and scored below
+ * `MIN_VISIBILITY`. Swing detection and the contact checks accept it at this confidence.
+ */
+export const MIN_WRIST_VISIBILITY = 0.3;
 
 export const THRESHOLDS = {
   /** Ready stance knee angle (hip–knee–ankle), degrees. */

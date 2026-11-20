@@ -1,4 +1,4 @@
-import { ChevronDown, TriangleAlert } from "lucide-react";
+import { ChevronDown, Info, TriangleAlert } from "lucide-react";
 import type { ReportData } from "@/engine/types";
 import { combineAnalyses } from "@/engine/analysis";
 import { Score, CheckList, TipCard, measuredValue } from "@/components/FeedbackPanel";
@@ -39,14 +39,24 @@ export function Report({ report }: { report: ReportData }) {
         </section>
       )}
 
+      {report.move === "clear" && report.swings.length > 0 && report.notice && (
+        <div className="mt-4 rounded-2xl bg-accent text-accent-foreground p-4 flex gap-3 text-sm">
+          <Info size={18} className="shrink-0" />
+          <p>{report.notice}</p>
+        </div>
+      )}
+
       {report.move === "clear" &&
         (report.swings.length === 0 ? (
           <div className="mt-4 rounded-2xl bg-warning-soft text-warning p-4 flex gap-3 text-sm">
             <TriangleAlert size={18} className="shrink-0" />
-            <p>
-              No swing detected. Stand side-on with your whole body in frame and swing your racket
-              arm fully above your head.
-            </p>
+            <div>
+              <p className="font-semibold">No swing detected</p>
+              <p className="mt-1">
+                {report.notice ??
+                  "Stand side-on with your whole body in frame and swing your racket arm fully above your head."}
+              </p>
+            </div>
           </div>
         ) : (
           report.swings.map((swing) => {

@@ -8,12 +8,19 @@ import {
   sideOnRatio,
 } from "@/engine/analysis";
 import { angle } from "@/engine/pose";
-import { detectSwings } from "@/engine/swings";
+import { detectSwings, diagnoseSwings, findSwings } from "@/engine/swings";
 import { buildReport, NoPlayerError } from "@/engine/report";
 import { buildLiveReport } from "@/engine/live";
 import { jointColors } from "@/engine/draw";
 import { COLORS } from "@/engine/config";
-import { facingPose, occludedSwingFrames, pose, sidePose, swingFrames } from "./fixtures";
+import {
+  clearFrames,
+  facingPose,
+  occludedSwingFrames,
+  pose,
+  sidePose,
+  swingFrames,
+} from "./fixtures";
 
 const byId = (a: Analysis, id: string): CheckResult => a.checks.find((c) => c.id === id)!;
 
@@ -122,6 +129,93 @@ describe("swing detection", () => {
     }
   });
 
+  it("finds a swing whose racket hand leaves the top of the frame", () => {
+    expect(
+      detectSwings(clearFrames([1000, 2600], 3500, { peakY: -0.06 }), "right", 1),
+    ).toHaveLength(2);
+  });
+
+  it("finds a shadow swing that only just clears the head", () => {
+    // Wrist peaks just above the nose: a practice swing without full reach. The
+    // contact-height check grades it; detection must still count it.
+    expect(detectSwings(clearFrames([1000, 2600], 3500, { peakY: 0.14 }), "right", 1)).toHaveLength(
+      2,
+    );
+  });
+
+  it("finds swings when the racket-side shoulder is hidden", () => {
+    const frames = clearFrames([1000, 2600], 3500, { hideRacketShoulder: true });
+    expect(detectSwings(frames, "right", 1)).toHaveLength(2);
+  });
+
+  it("finds swings on the other arm when the arm labels are swapped, and says so", () => {
+    const found = findSwings(clearFrames([1000, 2600], 3500, { swapArms: true }), "right", 1);
+    expect(found.swings).toHaveLength(2);
+    expect(found.handedness).toBe("left");
+  });
+
+  it("explains why no swing was found", () => {
+    const still = diagnoseSwings(swingFrames([], 3000), "right", 1);
+    expect(still.reason).toBe("not-high");
+    const unseen = diagnoseSwings(
+      swingFrames([], 3000).map((f) => ({ ...f, lm: f.lm.map((l) => ({ ...l, visibility: 0 })) })),
+      "right",
+      1,
+    );
+    expect(unseen.reason).toBe("not-tracked");
+  });
+
+  it("does not count raising the racket and holding it up as a swing", () => {
+    // Wrist rises to above the head over 400 ms and stays there (with jitter): no follow-through.
+    const frames = Array.from({ length: 90 }, (_, n) => {
+      const t = (n * 1000) / 30;
+      const y =
+        t < 600
+          ? 0.36
+          : t < 1000
+            ? 0.36 - ((t - 600) / 400) * 0.3
+            : 0.06 + Math.sin(n * 2.3) * Math.cos(n * 0.7) * 0.006;
+      return { t, lm: sidePose(y) };
+    });
+    expect(detectSwings(frames, "right", 1)).toEqual([]);
+  });
+
+  it("does not join frames from two different bodies into one swing", () => {
+    // A camera cut (or the tracker hopping to someone else): before 900 ms the pose is a
+    // much bigger body elsewhere in the frame, so its low wrist is not this swing's prep.
+    const frames = clearFrames([1000], 2000).map((f) =>
+      f.t < 900 ? { ...f, lm: f.lm.map((l) => ({ ...l, x: l.x * 2 - 0.6, y: l.y * 2 - 0.2 })) } : f,
+    );
+    expect(detectSwings(frames, "right", 1)).toEqual([]);
+  });
+
+  it("ignores a single-frame wrist glitch", () => {
+    // Seen on real footage at 15 fps: one frame reads high, its neighbours are far below.
+    const frames = Array.from({ length: 45 }, (_, n) => {
+      const t = (n * 1000) / 15;
+      return { t, lm: sidePose(n === 25 ? 0.12 : 0.4) };
+    });
+    expect(detectSwings(frames, "right", 1)).toEqual([]);
+  });
+
+  it("does not pair preparation and contact from a body that drifted between them", () => {
+    // Seen on real footage: after a cut the tracker shrinks onto another player gradually,
+    // in steps small enough to look continuous frame to frame.
+    // Before 1.3 s the tracker is on a still, much bigger body; it shrinks onto the
+    // swinging player in steps of under 1.4x, so no single step looks like a jump.
+    const swing = clearFrames([1400], 2400, { fps: 15 });
+    const scaleAt = (t: number) => (t < 1250 ? 2.5 : t < 1300 ? 1.9 : t < 1370 ? 1.38 : 1);
+    const frames = swing.map((f) => {
+      const s = scaleAt(f.t);
+      const lm = f.t < 1300 ? sidePose(0.4) : f.lm;
+      return {
+        ...f,
+        lm: lm.map((l) => ({ ...l, x: 0.5 + (l.x - 0.5) * s, y: 0.5 + (l.y - 0.5) * s })),
+      };
+    });
+    expect(detectSwings(frames, "right", 1)).toEqual([]);
+  });
+
   it("ignores a still player", () => {
     expect(detectSwings(swingFrames([], 3000), "right", 1)).toEqual([]);
   });
@@ -140,6 +234,19 @@ describe("reports", () => {
   it("reports no swings rather than inventing one", () => {
     const { report } = buildReport(swingFrames([], 2000), "clear", "right", 1);
     expect(report).toMatchObject({ swings: [], score: null });
+    // ...and says why, so the player knows what to change.
+    expect(report.notice).toMatch(/never went clearly above your head/);
+  });
+
+  it("scores swings found on the other arm and tells the player", () => {
+    const frames = clearFrames([900, 2400], 3200, { swapArms: true });
+    const { report } = buildReport(frames, "clear", "right", 1);
+    expect(report.swings).toHaveLength(2);
+    expect(report.notice).toMatch(/tracked on your left arm/);
+    // Checks ran on the arm that swung, so extension was measured.
+    expect(
+      report.swings[0]!.contact.checks.find((c) => c.id === "full_extension")?.status,
+    ).not.toBe("skip");
   });
 
   it("builds a stance report from the representative frame", () => {

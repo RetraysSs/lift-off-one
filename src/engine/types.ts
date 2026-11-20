@@ -49,4 +49,6 @@ export interface ReportData {
   swings: SwingReport[];
   stance?: Analysis;
   stanceSnapshot?: string;
+  /** Coaching note about the analysis itself, e.g. why no swing was detected. */
+  notice?: string;
 }

@@ -1,5 +1,5 @@
 import type { Analysis, CheckResult, Handedness, Landmark, Move } from "./types";
-import { THRESHOLDS as T } from "./config";
+import { MIN_WRIST_VISIBILITY, THRESHOLDS as T } from "./config";
 import {
   LM,
   angle,
@@ -18,6 +18,9 @@ const round = (n: number, digits = 0) => {
   const f = 10 ** digits;
   return Math.round(n * f) / f;
 };
+
+/** The racket wrist at contact is usually motion-blurred; accept it at lower confidence. */
+const wristSeen = (lm: Landmark[], i: number) => (lm[i]?.visibility ?? 0) >= MIN_WRIST_VISIBILITY;
 
 const UNSEEN_TIP = "Keep your whole body in frame so this can be measured.";
 
@@ -225,7 +228,7 @@ function elbowHigh(lm: Landmark[], handedness: Handedness, aspect: number): Chec
 function fullExtension(lm: Landmark[], handedness: Handedness, aspect: number): CheckResult {
   const side = racketSide(handedness);
   const base = { id: "full_extension", name: "Full arm extension", target: `> ${T.extension}°` };
-  if (!visible(lm, side.shoulder, side.elbow, side.wrist)) return skip(base);
+  if (!visible(lm, side.shoulder, side.elbow) || !wristSeen(lm, side.wrist)) return skip(base);
   const value = round(
     angle(pt(lm, side.shoulder, aspect), pt(lm, side.elbow, aspect), pt(lm, side.wrist, aspect)),
   );
@@ -245,7 +248,7 @@ function fullExtension(lm: Landmark[], handedness: Handedness, aspect: number): 
 function contactHigh(lm: Landmark[], handedness: Handedness): CheckResult {
   const side = racketSide(handedness);
   const base = { id: "contact_high", name: "Contact above head", target: "wrist above head" };
-  if (!visible(lm, side.wrist, LM.nose)) return skip(base);
+  if (!visible(lm, LM.nose) || !wristSeen(lm, side.wrist)) return skip(base);
   const pass = get(lm, side.wrist).y < get(lm, LM.nose).y;
   return {
     ...base,

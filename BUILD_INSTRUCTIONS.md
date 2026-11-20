@@ -28,9 +28,12 @@ a second router or a `src/pages` directory.
   - `analysis.ts` stance checks (knees, feet, racket up, weight forward) and clear checks
     (side-on, free arm, elbow high, extension, contact height); `scoreChecks` = % of measured
     checks passing. Unseen joints produce `skip`, never `fail`.
-  - `swings.ts` overhead-swing detection from racket-wrist height (peak = contact, lowest point in
-    the preceding window = preparation). Scaled by whichever torso side is visible and
-    tolerant of a motion-blurred wrist, because side-on the far shoulder/hip are hidden.
+  - `swings.ts` overhead-swing detection from racket-wrist height: contact is a peak at about head
+    height or above, supported by a neighbouring high frame and followed by a downward
+    follow-through; preparation is the lowest wrist point before it on the same body (no camera
+    cut or tracker drift in between). Tolerates side-on occlusion, a blurred wrist and a hand
+    leaving the top of the frame. `findSwings` falls back to the other arm when MediaPipe mixes
+    up left/right; `diagnoseSwings` explains a no-swing result (`ReportData.notice`).
   - `report.ts` builds `ReportData` from a frame sequence; `live.ts` summarises a live session.
   - `video.ts` seeks through a file (30 fps for clips up to 30 s, otherwise `ANALYSIS_FPS`), runs
     detection, then captures snapshots.
