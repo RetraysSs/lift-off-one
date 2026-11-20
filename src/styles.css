@@ -419,6 +419,31 @@
   border-radius: 99px;
   background: var(--foreground);
 }
+/* Live session: the sheet shrinks to a control bar floating over the full-height video. */
+.sheet-compact {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin-top: 0;
+  padding: 18px 28px calc(14px + env(safe-area-inset-bottom, 0px));
+  border-radius: 28px 28px 0 0;
+  box-shadow: 0 -10px 30px -18px oklch(0 0 0 / 0.45);
+  animation: slide-up 0.25s ease-out;
+}
+.stat-chip {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 .sheet-body {
   max-height: 46dvh;
   overflow-y: auto;
@@ -584,6 +609,14 @@
   height: 100%;
   object-fit: cover;
   display: block;
+}
+.tutorial-video canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
 }
 
 /* ---------- Screentips tour & sheets ---------- */

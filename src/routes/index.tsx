@@ -86,6 +86,8 @@ function Index() {
   const [openReport, setOpenReport] = useState<OpenReport | null>(null);
   const [choosing, setChoosing] = useState(false);
   const [touring, setTouring] = useState(false);
+  // A live camera session fills the screen; the bottom nav steps aside.
+  const [immersive, setImmersive] = useState(false);
   const { settings, update, loaded } = useSettings();
   const { sessions, add, remove, clear } = useSessions();
   const screenRef = useRef<HTMLDivElement>(null);
@@ -128,6 +130,8 @@ function Index() {
   }, [update]);
 
   const replayTour = () => {
+    // Also re-arm the live-session tips for the next time the camera starts.
+    update({ trainTourDone: false });
     go("home");
     setTouring(true);
   };
@@ -147,6 +151,7 @@ function Index() {
             intent={intent}
             onComplete={onComplete}
             onExample={showExample}
+            onImmersiveChange={setImmersive}
           />
         ) : (
           <main ref={screenRef} className="screen no-scrollbar">
@@ -184,10 +189,12 @@ function Index() {
             )}
           </main>
         )}
-        <BottomNav
-          tab={screen === "tutorials" ? "home" : screen}
-          onChange={(t) => (t === "train" && screen !== "train" ? setChoosing(true) : go(t))}
-        />
+        {!(screen === "train" && immersive) && (
+          <BottomNav
+            tab={screen === "tutorials" ? "home" : screen}
+            onChange={(t) => (t === "train" && screen !== "train" ? setChoosing(true) : go(t))}
+          />
+        )}
         {choosing && (
           <PracticeChooser onChoose={(move) => train(move)} onClose={() => setChoosing(false)} />
         )}

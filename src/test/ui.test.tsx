@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { useRef } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -8,6 +8,8 @@ import { TutorialsScreen } from "@/components/screens/TutorialsScreen";
 import { PracticeChooser } from "@/components/PracticeChooser";
 import { GuideTour, type TourStep } from "@/components/GuideTour";
 import { TUTORIALS } from "@/lib/tutorials";
+import { expandTrack } from "@/lib/poseFile";
+import { tutorialVerdict } from "@/lib/tutorialVerdict";
 
 // jsdom has no media playback.
 HTMLMediaElement.prototype.play = vi.fn().mockResolvedValue(undefined);
@@ -95,5 +97,36 @@ describe("screentips tour", () => {
     render(<Harness onDone={onDone} />);
     fireEvent.click(screen.getByRole("button", { name: "Skip" }));
     expect(onDone).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("tutorial skeleton analysis", () => {
+  const verdictFor = (clip: (typeof TUTORIALS)[number]["good"], move: "stance" | "clear") => {
+    const track = JSON.parse(readFileSync(path.join("public", clip.pose), "utf8"));
+    return tutorialVerdict(move, expandTrack(track.landmarks, track), track.aspect);
+  };
+
+  it("has a pose track matching each clip's length", () => {
+    for (const clip of TUTORIALS.flatMap((t) => [t.good, ...t.mistakes])) {
+      const track = JSON.parse(readFileSync(path.join("public", clip.pose), "utf8"));
+      const last = track.frames[track.frames.length - 1][0];
+      expect(Math.abs(last - clip.trim[1] * 1000), clip.name).toBeLessThan(80);
+    }
+  });
+
+  it("shows good form in green and flags each mistake", () => {
+    for (const t of TUTORIALS) {
+      const good = verdictFor(t.good, t.move);
+      expect(good.score, t.id).toBeGreaterThanOrEqual(80);
+      for (const m of t.mistakes) {
+        const bad = verdictFor(m, t.move);
+        expect(
+          bad.analysis.checks.some((c) => c.status === "fail"),
+          m.name,
+        ).toBe(true);
+        expect(bad.score ?? 0, m.name).toBeLessThan(good.score!);
+      }
+    }
+    expect(verdictFor(TUTORIALS[2]!.good, "clear").label).toMatch(/^Backhand/);
   });
 });

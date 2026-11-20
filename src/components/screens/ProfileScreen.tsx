@@ -116,7 +116,7 @@ export function ProfileScreen({
             onChange={(defaultMove) => onChange({ defaultMove })}
           />
         </Row>
-        <Row label="Clip length" hint="Recorded after a 3-2-1 countdown">
+        <Row label="Clip length" hint="How long each recorded clip runs">
           <Seg
             label="Clip length"
             value={settings.recordSeconds}
@@ -127,6 +127,19 @@ export function ProfileScreen({
               [12, "12s"],
             ]}
             onChange={(recordSeconds) => onChange({ recordSeconds })}
+          />
+        </Row>
+        <Row label="Countdown" hint="Time to get into position after you press record">
+          <Seg
+            label="Countdown"
+            value={settings.countdownSeconds}
+            options={[
+              [0, "Off"],
+              [3, "3s"],
+              [5, "5s"],
+              [10, "10s"],
+            ]}
+            onChange={(countdownSeconds) => onChange({ countdownSeconds })}
           />
         </Row>
         <Row label="Camera">

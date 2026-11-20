@@ -1,11 +1,54 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Check, Gauge, Play, Smartphone, X } from "lucide-react";
-import type { Move } from "@/engine/types";
-import { TUTORIALS, type Tutorial } from "@/lib/tutorials";
+import { ArrowLeft, Check, Gauge, Play, ScanLine, Smartphone, X } from "lucide-react";
+import type { Frame, Move } from "@/engine/types";
+import { drawPose } from "@/engine/draw";
+import { TUTORIALS, type Tutorial, type TutorialClip } from "@/lib/tutorials";
+import { expandTrack, frameAt, type PoseTrack } from "@/lib/poseFile";
+import { tutorialVerdict, type TutorialVerdict } from "@/lib/tutorialVerdict";
 
-function ClipPlayer({ src, poster, slow }: { src: string; poster: string; slow: boolean }) {
+interface LoadedPose {
+  frames: Frame[];
+  verdict: TutorialVerdict;
+}
+
+// Pose tracks are small and fixed, so keep them for the session.
+const poseCache = new Map<string, Promise<LoadedPose>>();
+function loadPose(clip: TutorialClip, move: Move) {
+  let pending = poseCache.get(clip.pose);
+  if (!pending) {
+    pending = fetch(clip.pose)
+      .then((r) => {
+        if (!r.ok) throw new Error(`Pose track ${clip.pose}: ${r.status}`);
+        return r.json() as Promise<PoseTrack & { landmarks: number[] }>;
+      })
+      .then((track) => {
+        const frames = expandTrack(track.landmarks, track);
+        return { frames, verdict: tutorialVerdict(move, frames, track.aspect) };
+      });
+    pending.catch(() => poseCache.delete(clip.pose));
+    poseCache.set(clip.pose, pending);
+  }
+  return pending;
+}
+
+/** Looping example clip with the engine's skeleton analysis drawn over it. */
+function ClipPlayer({
+  clip,
+  move,
+  slow,
+  skeleton,
+}: {
+  clip: TutorialClip;
+  move: Move;
+  slow: boolean;
+  skeleton: boolean;
+}) {
   const ref = useRef<HTMLVideoElement>(null);
+  const canvas = useRef<HTMLCanvasElement>(null);
   const [blocked, setBlocked] = useState(false);
+  const [pose, setPose] = useState<LoadedPose | null>(null);
+  const { src, poster } = clip;
+
   useEffect(() => {
     const v = ref.current;
     if (!v) return;
@@ -16,6 +59,44 @@ function ClipPlayer({ src, poster, slow }: { src: string; poster: string; slow: 
     // Autoplay can be refused (e.g. iOS Low Power Mode); offer a play button instead.
     ref.current?.play().catch(() => setBlocked(true));
   }, [src]);
+
+  useEffect(() => {
+    let live = true;
+    setPose(null);
+    loadPose(clip, move)
+      .then((p) => live && setPose(p))
+      .catch(() => undefined); // The video still works without the overlay.
+    return () => {
+      live = false;
+    };
+  }, [clip, move]);
+
+  // Draw the pose for the frame on screen, every animation frame.
+  useEffect(() => {
+    const c = canvas.current;
+    const ctx = c?.getContext("2d");
+    if (!c || !ctx) return;
+    if (!skeleton || !pose) {
+      ctx.clearRect(0, 0, c.width, c.height);
+      return;
+    }
+    let raf = 0;
+    const draw = () => {
+      raf = requestAnimationFrame(draw);
+      const v = ref.current;
+      if (!v) return;
+      if (v.videoWidth && (c.width !== v.videoWidth || c.height !== v.videoHeight)) {
+        c.width = v.videoWidth;
+        c.height = v.videoHeight;
+      }
+      const f = frameAt(pose.frames, v.currentTime * 1000);
+      if (f) drawPose(ctx, f.lm, pose.verdict.analysis);
+      else ctx.clearRect(0, 0, c.width, c.height);
+    };
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, [pose, skeleton]);
+
   return (
     <div className="tutorial-video">
       <video
@@ -31,6 +112,15 @@ function ClipPlayer({ src, poster, slow }: { src: string; poster: string; slow: 
         onLoadedMetadata={(e) => (e.currentTarget.playbackRate = slow ? 0.5 : 1)}
         aria-label="Technique example video"
       />
+      <canvas ref={canvas} width={720} height={1280} aria-hidden="true" />
+      {skeleton && pose && (
+        <span
+          className="absolute left-3 bottom-3 glass rounded-full px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 pointer-events-none"
+          role="status"
+        >
+          <ScanLine size={13} /> {pose.verdict.label}
+        </span>
+      )}
       {blocked && (
         <button
           type="button"
@@ -63,6 +153,7 @@ export function TutorialsScreen({
   // 0 = good form, 1.. = mistake clips
   const [view, setView] = useState(0);
   const [slow, setSlow] = useState(false);
+  const [skeleton, setSkeleton] = useState(true);
   const tutorial = TUTORIALS.find((t) => t.id === id) ?? TUTORIALS[0]!;
   const showingGood = view === 0;
   const clip = showingGood ? tutorial.good : (tutorial.mistakes[view - 1] ?? tutorial.good);
@@ -105,7 +196,7 @@ export function TutorialsScreen({
         </div>
 
         <div className="relative mt-4">
-          <ClipPlayer src={clip.src} poster={clip.poster} slow={slow} />
+          <ClipPlayer clip={clip} move={tutorial.move} slow={slow} skeleton={skeleton} />
           <div className="absolute top-3 left-3 right-3 flex justify-between gap-2 pointer-events-none">
             <span
               className={`rounded-full px-3 py-1.5 text-xs font-bold flex items-center gap-1.5 ${
@@ -115,14 +206,25 @@ export function TutorialsScreen({
               {showingGood ? <Check size={13} strokeWidth={3} /> : <X size={13} strokeWidth={3} />}
               {showingGood ? "Good form" : "Common mistake"}
             </span>
-            <button
-              type="button"
-              className="glass rounded-full px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 pointer-events-auto"
-              aria-pressed={slow}
-              onClick={() => setSlow((s) => !s)}
-            >
-              <Gauge size={13} /> {slow ? "0.5×" : "1×"}
-            </button>
+            <div className="flex gap-2 pointer-events-auto">
+              <button
+                type="button"
+                className={`glass rounded-full px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 ${skeleton ? "!bg-primary !text-primary-foreground" : ""}`}
+                aria-pressed={skeleton}
+                onClick={() => setSkeleton((s) => !s)}
+                title="Show the skeleton analysis"
+              >
+                <ScanLine size={13} /> Skeleton
+              </button>
+              <button
+                type="button"
+                className="glass rounded-full px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 pointer-events-auto"
+                aria-pressed={slow}
+                onClick={() => setSlow((s) => !s)}
+              >
+                <Gauge size={13} /> {slow ? "0.5×" : "1×"}
+              </button>
+            </div>
           </div>
         </div>
 

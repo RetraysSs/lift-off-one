@@ -62,6 +62,16 @@ a second router or a `src/pages` directory.
   originals in `testvids/` (gitignored), about 150–340 KB each. Mistake notes describe what the
   engine measured on each clip. To re-cut: `ffmpeg -ss <start> -i <src> -t <len> -an
   -vf scale=720:-2,fps=30 -c:v libx264 -crf 27 -movflags +faststart <name>.mp4`.
+- **Tutorial skeletons**: each clip has a pose track (`public/tutorials/*.pose.json`, cut from the
+  calibration fixture with the clip's `trim`; regenerate with `bun run tutorial-poses`). The
+  overlay is coloured by the engine's own verdict on that clip (`lib/tutorialVerdict.ts`).
+- **Live session**: once the camera runs the video fills the screen, the bottom nav hides and
+  the sheet shrinks to a bar (switch camera · record · pause); End session sits top-right and
+  session stats become chips on the video. Pause also holds a countdown or recording
+  (MediaRecorder pause); a clip paused mid-recording is re-analysed from the video because
+  the live frames have a gap. Switch camera is locked only while a clip records. First-run
+  screentips (`settings.trainTourDone`) explain the bar. Countdown length is a setting
+  (Off / 3 / 5 / 10 s).
 - **Reports** (bottom nav), **Practice** (live / record / upload), **Profile**.
 
 ## Flows
