@@ -51,6 +51,19 @@ a second router or a `src/pages` directory.
 - `src/mock/mockData.ts` — now only powers the "Example report".
 - Visual tokens are in `src/styles.css` (lime surround, lavender primary, Orbitron display type).
 
+## Screens
+
+- **Home**: bento of Practice (opens the move chooser), Tutorials, Analyse match/video (Train in
+  upload mode) and Reports. A first-visit screentips tour (`GuideTour`, steps in
+  `routes/index.tsx`) spotlights each tile; `settings.tourDone` records completion and Profile /
+  the Home **?** button replay it.
+- **Tutorials**: good form next to common mistakes for ready stance, forehand and backhand clear
+  (`lib/tutorials.ts`). Clips in `public/tutorials` are one-rep, 720p H.264 cuts of the coach's
+  originals in `testvids/` (gitignored), about 150–340 KB each. Mistake notes describe what the
+  engine measured on each clip. To re-cut: `ffmpeg -ss <start> -i <src> -t <len> -an
+  -vf scale=720:-2,fps=30 -c:v libx264 -crf 27 -movflags +faststart <name>.mp4`.
+- **Reports** (bottom nav), **Practice** (live / record / upload), **Profile**.
+
 ## Flows
 
 1. **Live**: Start camera → skeleton + live checks, score pill, in-form timer (stance) or swing

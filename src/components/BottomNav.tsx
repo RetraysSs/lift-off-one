@@ -4,14 +4,14 @@ export type Tab = "home" | "progress" | "train" | "profile";
 
 const ITEMS: { tab: Tab; label: string; Icon: typeof House }[] = [
   { tab: "home", label: "Home", Icon: House },
-  { tab: "progress", label: "Progress", Icon: ChartNoAxesColumn },
-  { tab: "train", label: "Train", Icon: Dumbbell },
+  { tab: "progress", label: "Reports", Icon: ChartNoAxesColumn },
+  { tab: "train", label: "Practice", Icon: Dumbbell },
   { tab: "profile", label: "Profile", Icon: User },
 ];
 
-export function BottomNav({ tab, onChange }: { tab: Tab; onChange: (tab: Tab) => void }) {
+export function BottomNav({ tab, onChange }: { tab: Tab | null; onChange: (tab: Tab) => void }) {
   return (
-    <nav className="bottom-nav" aria-label="Main">
+    <nav className="bottom-nav" aria-label="Main" data-tour="nav">
       {ITEMS.map(({ tab: t, label, Icon }) => (
         <button
           key={t}

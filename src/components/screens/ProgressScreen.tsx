@@ -83,7 +83,7 @@ export function ProgressScreen({
 
   return (
     <div className="screen-pad fade-in">
-      <h1 className="display text-xl font-semibold">Progress</h1>
+      <h1 className="display text-xl font-semibold">Reports</h1>
       <p className="text-sm text-muted-foreground mt-1">
         Every session is stored on this device only.
       </p>

@@ -21,6 +21,8 @@ export interface Settings {
   recordSeconds: number;
   facing: Facing;
   showGuide: boolean;
+  /** First-visit screentips tour has been completed or skipped. */
+  tourDone: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -30,6 +32,7 @@ export const DEFAULT_SETTINGS: Settings = {
   recordSeconds: 5,
   facing: "user",
   showGuide: true,
+  tourDone: false,
 };
 
 export const SESSIONS_KEY = "liftoff.sessions.v1";

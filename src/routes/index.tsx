@@ -6,6 +6,9 @@ import { TrainScreen, type TrainIntent } from "@/components/screens/TrainScreen"
 import { ProgressScreen } from "@/components/screens/ProgressScreen";
 import { ProfileScreen } from "@/components/screens/ProfileScreen";
 import { ReportSheet, type OpenReport } from "@/components/ReportSheet";
+import { PracticeChooser } from "@/components/PracticeChooser";
+import { GuideTour, type TourStep } from "@/components/GuideTour";
+import { TutorialsScreen } from "@/components/screens/TutorialsScreen";
 import { useSessions, useSettings } from "@/hooks/useAppData";
 import { newSession, type Session, type SessionSource } from "@/lib/storage";
 import { mockReport, mockStanceAnalysis } from "@/mock/mockData";
@@ -43,24 +46,64 @@ const EXAMPLES: Record<Move, ReportData> = {
   },
 };
 
+type Screen = Tab | "tutorials";
+
+const TOUR: TourStep[] = [
+  {
+    title: "Welcome to Lift Off",
+    body: "Your badminton coach in your pocket. Here is a 30-second tour of where everything is.",
+  },
+  {
+    target: "practice",
+    title: "Start here: Practice",
+    body: "Live coaching with your camera. Choose ready stance or overhead clear and get feedback as you move.",
+  },
+  {
+    target: "tutorials",
+    title: "Learn good form",
+    body: "Short clips of good technique next to common mistakes. Watch these before you practise.",
+  },
+  {
+    target: "analyse",
+    title: "Analyse a match or video",
+    body: "Upload a clip from your phone for a full report with snapshots of every swing.",
+  },
+  {
+    target: "reports",
+    title: "Your reports",
+    body: "Every session is saved here with your scores, trends and what to work on next.",
+  },
+  {
+    target: "nav",
+    title: "Jump around any time",
+    body: "Home, Reports, Practice and Profile are always one tap away down here.",
+  },
+];
+
 function Index() {
-  const [tab, setTab] = useState<Tab>("home");
+  const [screen, setScreen] = useState<Screen>("home");
   const [intent, setIntent] = useState<TrainIntent>({ move: "stance", mode: "live", key: 0 });
   const [openReport, setOpenReport] = useState<OpenReport | null>(null);
+  const [choosing, setChoosing] = useState(false);
+  const [touring, setTouring] = useState(false);
   const { settings, update, loaded } = useSettings();
   const { sessions, add, remove, clear } = useSessions();
   const screenRef = useRef<HTMLDivElement>(null);
+  const appRef = useRef<HTMLDivElement>(null);
 
-  // Apply the saved default move once settings have loaded.
+  // Apply the saved default move once settings have loaded, and show the screentips
+  // tour on a first visit.
   const appliedDefault = useRef(false);
   useEffect(() => {
     if (!loaded || appliedDefault.current) return;
     appliedDefault.current = true;
     setIntent((i) => ({ ...i, move: settings.defaultMove, key: i.key + 1 }));
-  }, [loaded, settings.defaultMove]);
+    if (!settings.tourDone) setTouring(true);
+  }, [loaded, settings.defaultMove, settings.tourDone]);
 
-  const go = useCallback((next: Tab) => {
-    setTab(next);
+  const go = useCallback((next: Screen) => {
+    setScreen(next);
+    setChoosing(false);
     screenRef.current?.scrollTo({ top: 0 });
   }, []);
 
@@ -79,6 +122,16 @@ function Index() {
     [add],
   );
 
+  const endTour = useCallback(() => {
+    setTouring(false);
+    update({ tourDone: true });
+  }, [update]);
+
+  const replayTour = () => {
+    go("home");
+    setTouring(true);
+  };
+
   const openSession = (s: Session) =>
     setOpenReport({ report: s.report, date: s.date, source: s.source });
   const showExample = (move: Move) =>
@@ -86,8 +139,8 @@ function Index() {
 
   return (
     <div className="app-surround">
-      <div className="app">
-        {tab === "train" ? (
+      <div className="app" ref={appRef}>
+        {screen === "train" ? (
           <TrainScreen
             settings={settings}
             onSettings={update}
@@ -97,42 +150,56 @@ function Index() {
           />
         ) : (
           <main ref={screenRef} className="screen no-scrollbar">
-            {tab === "home" && (
+            {screen === "home" && (
               <HomeScreen
                 name={settings.name}
                 sessions={sessions}
-                onTrain={(move) => train(move)}
-                onUpload={() => train(settings.defaultMove, "upload")}
-                onExample={() => showExample(settings.defaultMove)}
+                onPractice={() => setChoosing(true)}
+                onTutorials={() => go("tutorials")}
+                onAnalyse={() => train(settings.defaultMove, "upload")}
+                onReports={() => go("progress")}
                 onOpen={openSession}
-                onSeeAll={() => go("progress")}
+                onHelp={() => setTouring(true)}
               />
             )}
-            {tab === "progress" && (
+            {screen === "tutorials" && (
+              <TutorialsScreen onBack={() => go("home")} onPractise={(move) => train(move)} />
+            )}
+            {screen === "progress" && (
               <ProgressScreen
                 sessions={sessions}
                 onOpen={openSession}
                 onDelete={remove}
-                onTrain={() => train(settings.defaultMove)}
+                onTrain={() => setChoosing(true)}
               />
             )}
-            {tab === "profile" && (
+            {screen === "profile" && (
               <ProfileScreen
                 settings={settings}
                 onChange={update}
                 sessionCount={sessions.length}
                 onClearHistory={clear}
+                onReplayTour={replayTour}
               />
             )}
           </main>
         )}
-        <BottomNav tab={tab} onChange={go} />
+        <BottomNav
+          tab={screen === "tutorials" ? "home" : screen}
+          onChange={(t) => (t === "train" && screen !== "train" ? setChoosing(true) : go(t))}
+        />
+        {choosing && (
+          <PracticeChooser onChoose={(move) => train(move)} onClose={() => setChoosing(false)} />
+        )}
         {openReport && (
           <ReportSheet
             open={openReport}
             onClose={() => setOpenReport(null)}
             onPracticeAgain={() => train(openReport.report.move)}
           />
+        )}
+        {touring && screen === "home" && !openReport && (
+          <GuideTour steps={TOUR} container={appRef} onDone={endTour} />
         )}
       </div>
     </div>

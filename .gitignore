@@ -30,3 +30,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Source footage: large originals stay local. Web copies live in public/tutorials.
+/testvids/
+/*.mp4
