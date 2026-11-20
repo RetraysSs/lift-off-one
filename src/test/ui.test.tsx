@@ -30,7 +30,7 @@ describe("tutorials", () => {
     expect(screen.getByText("Good form", { selector: "span" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Mistake" }));
     expect(screen.getByText("Common mistake")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: "FH clear" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Forehand clear" }));
     expect(screen.getByRole("button", { name: "Mistake 2" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Practise your clear/ }));
     expect(onPractise).toHaveBeenCalledWith("clear");

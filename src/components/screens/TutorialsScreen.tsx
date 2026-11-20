@@ -188,9 +188,9 @@ export function TutorialsScreen({
                 setId(t.id);
                 setView(0);
               }}
-              className="!text-[13px]"
+              className="!text-[12.5px] !h-auto min-h-[38px] px-1 py-1 leading-tight"
             >
-              {t.id === "stance" ? "Stance" : t.id === "fh-clear" ? "FH clear" : "BH clear"}
+              {t.title}
             </button>
           ))}
         </div>
