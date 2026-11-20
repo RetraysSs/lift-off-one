@@ -1,7 +1,7 @@
 import type { Frame, Handedness, Move, ReportData } from "./types";
 import type { PoseDetector } from "./detector";
 import { ANALYSIS_FPS, SHORT_CLIP_FPS, SHORT_CLIP_SECONDS } from "./config";
-import { buildReport, type KeyFrame } from "./report";
+import { buildFullReport, buildReport, type KeyFrame } from "./report";
 import { captureSnapshot } from "./draw";
 
 /** Longer videos are trimmed to keep analysis responsive on phones. */
@@ -117,6 +117,8 @@ async function fillSnapshots(
 
 export interface AnalyseVideoOptions {
   move: Move;
+  /** "full": overall analysis of every clear and ready stance in the video (uploads). */
+  scope?: "move" | "full";
   handedness: Handedness;
   onProgress?: (fraction: number) => void;
   signal?: AbortSignal;
@@ -137,7 +139,7 @@ export function samplingFps(durationSeconds: number) {
 export async function analyseVideo(
   source: Blob,
   detector: PoseDetector,
-  { move, handedness, onProgress, signal }: AnalyseVideoOptions,
+  { move, scope, handedness, onProgress, signal }: AnalyseVideoOptions,
 ): Promise<VideoAnalysis> {
   const { video, duration: fullDuration, close } = await openVideo(source);
   try {
@@ -159,7 +161,10 @@ export async function analyseVideo(
       if (n % 4 === 0) await new Promise((r) => setTimeout(r, 0));
     }
 
-    const { report, keyFrames } = buildReport(frames, move, handedness, aspect);
+    const { report, keyFrames } =
+      scope === "full"
+        ? buildFullReport(frames, handedness, aspect)
+        : buildReport(frames, move, handedness, aspect);
     await fillSnapshots(video, duration, frames, keyFrames, report, {
       ...(signal ? { signal } : {}),
       onProgress: (f) => onProgress?.(0.9 + 0.1 * f),

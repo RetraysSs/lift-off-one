@@ -1,6 +1,6 @@
 import { ChevronRight, Trash2 } from "lucide-react";
 import type { Session } from "@/lib/storage";
-import { formatDate, MOVE_LABEL, SOURCE_LABEL } from "@/lib/format";
+import { formatDate, reportTitle, SOURCE_LABEL } from "@/lib/format";
 
 export function SessionList({
   sessions,
@@ -33,10 +33,10 @@ export function SessionList({
               {s.score ?? "–"}
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block text-sm font-semibold truncate">{MOVE_LABEL[s.move]}</span>
+              <span className="block text-sm font-semibold truncate">{reportTitle(s.report)}</span>
               <span className="block text-xs text-muted-foreground mt-0.5 truncate">
                 {SOURCE_LABEL[s.source]} · {formatDate(s.date)}
-                {s.move === "clear" ? ` · ${s.report.swings.length} swings` : ""}
+                {s.report.swings.length ? ` · ${s.report.swings.length} swings` : ""}
               </span>
             </span>
             <ChevronRight size={17} className="text-muted-foreground shrink-0" />
@@ -46,7 +46,7 @@ export function SessionList({
               type="button"
               className="p-3.5 text-muted-foreground hover:text-fail"
               onClick={() => onDelete(s.id)}
-              aria-label={`Delete ${MOVE_LABEL[s.move]} session from ${formatDate(s.date)}`}
+              aria-label={`Delete ${reportTitle(s.report)} session from ${formatDate(s.date)}`}
             >
               <Trash2 size={16} />
             </button>

@@ -3,7 +3,7 @@ import { ArrowLeft, RotateCcw } from "lucide-react";
 import type { ReportData } from "@/engine/types";
 import type { SessionSource } from "@/lib/storage";
 import { Report } from "@/components/Report";
-import { formatDate, MOVE_LABEL, SOURCE_LABEL } from "@/lib/format";
+import { formatDate, MOVE_LABEL, reportTitle, SOURCE_LABEL } from "@/lib/format";
 
 export interface OpenReport {
   report: ReportData;
@@ -42,7 +42,7 @@ export function ReportSheet({
         </button>
         <div className="min-w-0">
           <h2 id="report-title" className="display font-semibold text-[15px]">
-            {MOVE_LABEL[open.report.move]}
+            {reportTitle(open.report)}
           </h2>
           <p className="text-xs text-muted-foreground">
             {open.source === "example"
@@ -58,7 +58,10 @@ export function ReportSheet({
           onClick={onPracticeAgain}
           className="mt-6 w-full h-13 rounded-full bg-primary text-primary-foreground font-semibold flex items-center justify-center gap-2 py-3.5"
         >
-          <RotateCcw size={17} /> Practise {MOVE_LABEL[open.report.move].toLowerCase()}
+          <RotateCcw size={17} />{" "}
+          {open.report.scope === "full"
+            ? "Practise again"
+            : `Practise ${MOVE_LABEL[open.report.move].toLowerCase()}`}
         </button>
       </div>
     </div>

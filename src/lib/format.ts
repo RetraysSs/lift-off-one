@@ -36,3 +36,8 @@ export function formatDuration(ms: number) {
   if (min < 60) return `${min} min`;
   return `${Math.floor(min / 60)} h ${min % 60} min`;
 }
+
+/** Title for a report or saved session: the move, or "Video analysis" for a full one. */
+export function reportTitle(report: { move: Move; scope?: "move" | "full" }) {
+  return report.scope === "full" ? "Video analysis" : MOVE_LABEL[report.move];
+}

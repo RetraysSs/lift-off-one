@@ -57,6 +57,13 @@ export const SWING = {
 };
 
 /**
+ * Thresholds for swings that never reach overhead (contact around shoulder height).
+ * Used by the overall video analysis to count clear attempts that stayed low; a standing
+ * player never triggers them (checked on the reference stance clips).
+ */
+export const LOW_SWING: Partial<typeof SWING> = { minContactHeight: 0, supportHeight: -0.2 };
+
+/**
  * Racket-wrist height above the shoulders, in torso lengths (null if unseen).
  * Side-on, either shoulder may be hidden; both sit at about the same height, so the
  * visible one(s) give the reference.
@@ -79,7 +86,13 @@ export function wristHeight(frame: Frame, handedness: Handedness, aspect: number
  * height high above the shoulder; preparation is the lowest wrist point shortly before.
  * Returned indices refer to the input `frames` array.
  */
-export function detectSwings(frames: Frame[], handedness: Handedness, aspect = 16 / 9): Swing[] {
+export function detectSwings(
+  frames: Frame[],
+  handedness: Handedness,
+  aspect = 16 / 9,
+  overrides: Partial<typeof SWING> = {},
+): Swing[] {
+  const P = { ...SWING, ...overrides };
   const raw = frames.map((f) => wristHeight(f, handedness, aspect));
   const t = (i: number) => frames[i]?.t ?? 0;
   // Average with neighbours within `smoothMs` to suppress landmark jitter. Time-based, so
@@ -90,7 +103,7 @@ export function detectSwings(frames: Frame[], handedness: Handedness, aspect = 1
     let n = 1;
     for (const j of [i - 1, i + 1]) {
       const r = raw[j];
-      if (r != null && Math.abs(t(j) - t(i)) <= SWING.smoothMs) {
+      if (r != null && Math.abs(t(j) - t(i)) <= P.smoothMs) {
         sum += r;
         n++;
       }
@@ -100,21 +113,21 @@ export function detectSwings(frames: Frame[], handedness: Handedness, aspect = 1
   const h = (i: number) => smooth[i] ?? null;
   const bodies = frames.map((f) => body(f.lm, aspect));
   // Frames without a measurable body are not evidence of a jump.
-  const sameBody = (a: number, b: number, maxJump = SWING.maxBodyJump) => {
+  const sameBody = (a: number, b: number, maxJump = P.maxBodyJump) => {
     const p = bodies[a];
     const q = bodies[b];
     if (!p || !q) return true;
     const ratio = Math.max(p.scale, q.scale) / Math.min(p.scale, q.scale);
     const jump = Math.hypot(p.x - q.x, p.y - q.y) / Math.max(p.scale, q.scale);
-    return ratio <= SWING.maxScaleChange && jump <= maxJump;
+    return ratio <= P.maxScaleChange && jump <= maxJump;
   };
 
   // True if another frame near contact is also high (not a one-frame glitch).
   const supported = (c: number) => {
-    for (let j = c - 1; j >= 0 && t(c) - t(j) <= SWING.supportMs; j--)
-      if ((h(j) ?? -Infinity) >= SWING.supportHeight) return true;
-    for (let j = c + 1; j < frames.length && t(j) - t(c) <= SWING.supportMs; j++)
-      if ((h(j) ?? -Infinity) >= SWING.supportHeight) return true;
+    for (let j = c - 1; j >= 0 && t(c) - t(j) <= P.supportMs; j--)
+      if ((h(j) ?? -Infinity) >= P.supportHeight) return true;
+    for (let j = c + 1; j < frames.length && t(j) - t(c) <= P.supportMs; j++)
+      if ((h(j) ?? -Infinity) >= P.supportHeight) return true;
     return false;
   };
 
@@ -125,7 +138,7 @@ export function detectSwings(frames: Frame[], handedness: Handedness, aspect = 1
     let seen = 0;
     let windowComplete = false;
     for (let j = c + 1; j < frames.length; j++) {
-      if (t(j) - t(c) > SWING.followThroughMs) {
+      if (t(j) - t(c) > P.followThroughMs) {
         windowComplete = true;
         break;
       }
@@ -135,19 +148,19 @@ export function detectSwings(frames: Frame[], handedness: Handedness, aspect = 1
         seen++;
       }
     }
-    return hc - lowest >= SWING.minFollowThrough || !windowComplete || seen === 0;
+    return hc - lowest >= P.minFollowThrough || !windowComplete || seen === 0;
   };
 
   const contacts: number[] = [];
   for (let i = 0; i < frames.length; i++) {
     const hi = h(i);
-    if (hi === null || hi < SWING.minContactHeight) continue;
+    if (hi === null || hi < P.minContactHeight) continue;
     let isPeak = true;
-    for (let j = i - 1; j >= 0 && t(i) - t(j) <= SWING.peakWindowMs; j--) {
+    for (let j = i - 1; j >= 0 && t(i) - t(j) <= P.peakWindowMs; j--) {
       const hj = h(j);
       if (hj !== null && hj > hi) isPeak = false;
     }
-    for (let j = i + 1; j < frames.length && t(j) - t(i) <= SWING.peakWindowMs; j++) {
+    for (let j = i + 1; j < frames.length && t(j) - t(i) <= P.peakWindowMs; j++) {
       const hj = h(j);
       if (hj !== null && hj >= hi) isPeak = false;
     }
@@ -160,21 +173,21 @@ export function detectSwings(frames: Frame[], handedness: Handedness, aspect = 1
     let anchor = c;
     for (let j = c - 1; j >= 0; j--) {
       const dt = t(c) - t(j);
-      if (dt > SWING.prepWindowMs[0]) break;
-      if (!sameBody(j, anchor) || !sameBody(j, c, SWING.maxSpanBodyJump)) break;
+      if (dt > P.prepWindowMs[0]) break;
+      if (!sameBody(j, anchor) || !sameBody(j, c, P.maxSpanBodyJump)) break;
       if (bodies[j]) anchor = j;
       const hj = h(j);
-      if (dt < SWING.prepWindowMs[1] || hj === null) continue;
+      if (dt < P.prepWindowMs[1] || hj === null) continue;
       const hp = h(prep);
       if (hp === null || hj < hp) prep = j;
     }
     const hc = h(c);
     const hp = h(prep);
-    if (hc === null || hp === null || hc - hp < SWING.minRise) continue;
+    if (hc === null || hp === null || hc - hp < P.minRise) continue;
     if (!followsThrough(c, hc)) continue;
 
     const last = swings[swings.length - 1];
-    if (last && t(c) - t(last.contactIndex) < SWING.minGapMs) {
+    if (last && t(c) - t(last.contactIndex) < P.minGapMs) {
       const hl = h(last.contactIndex);
       if (hl !== null && hc > hl) swings[swings.length - 1] = { prepIndex: prep, contactIndex: c };
       continue;

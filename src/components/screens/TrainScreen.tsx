@@ -11,6 +11,7 @@ import {
   LoaderCircle,
   ScanLine,
   Sparkles,
+  Timer,
 } from "lucide-react";
 import type { Frame, Mode, Move, ReportData, SwingReport } from "@/engine/types";
 import { Stage, syncCanvas, type StageHandle } from "@/components/Stage";
@@ -35,6 +36,7 @@ import { analyseFrame, combineAnalyses } from "@/engine/analysis";
 import { buildLiveReport } from "@/engine/live";
 import { drawPose } from "@/engine/draw";
 
+import { GuideTour, type TourStep } from "@/components/GuideTour";
 import type { SessionSource, Settings } from "@/lib/storage";
 import { clock, MOVE_LABEL } from "@/lib/format";
 
@@ -49,11 +51,51 @@ export interface TrainScreenProps {
   onSettings: (patch: Partial<Settings>) => void;
   intent: TrainIntent;
   onComplete: (report: ReportData, source: SessionSource, durationMs: number) => void;
-  onExample: (move: Move) => void;
+  onExample: (move: Move | "full") => void;
+  /** True while a live session fills the screen (the app hides its bottom nav). */
+  onImmersiveChange?: (immersive: boolean) => void;
 }
 
 /** Fewer live frames than this (about a third of a second) means re-detect from the clip. */
 const MIN_CAPTURED_FRAMES = 10;
+
+/** Screentips shown the first time a live session starts. */
+function liveTour(settings: Settings): TourStep[] {
+  const countdown = settings.countdownSeconds
+    ? `a ${settings.countdownSeconds}-second countdown`
+    : "no countdown";
+  return [
+    {
+      title: "You’re live",
+      body: "The video now fills the screen and your coach is watching. Here’s what the controls do.",
+    },
+    {
+      target: "rec",
+      title: "Record a clip",
+      body: `Records ${settings.recordSeconds} seconds after ${countdown}, then gives you a full report. Set both in Profile.`,
+    },
+    {
+      target: "pause",
+      title: "Pause",
+      body: "Pauses coaching, and the recording or countdown if one is running. Tap again to carry on.",
+    },
+    {
+      target: "flip",
+      title: "Switch camera",
+      body: "Swap between front and back cameras. Switch before you record: it’s locked while a clip records.",
+    },
+    {
+      target: "end",
+      title: "End session",
+      body: "Stops the camera and saves this session to your Reports.",
+    },
+    {
+      target: "details",
+      title: "Coaching details",
+      body: "Tap the handle to see your posture checks and your last swing.",
+    },
+  ];
+}
 
 const isVideoFile = (file: File) =>
   file.type.startsWith("video/") || /\.(mp4|mov|m4v|webm|mkv|avi|3gp)$/i.test(file.name);
@@ -64,6 +106,7 @@ export function TrainScreen({
   intent,
   onComplete,
   onExample,
+  onImmersiveChange,
 }: TrainScreenProps) {
   const [mode, setMode] = useState<Mode>(intent.mode);
   const [move, setMove] = useState<Move>(intent.move);
@@ -75,7 +118,9 @@ export function TrainScreen({
   const [analysing, setAnalysing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [fileUrl, setFileUrl] = useState<string | null>(null);
-  const [playback, setPlayback] = useState<{ frames: Frame[]; move: Move } | null>(null);
+  // Analysed upload: its poses, plus swing contact times so playback can colour each
+  // moment by phase (clear checks around a swing, stance checks the rest of the time).
+  const [playback, setPlayback] = useState<{ frames: Frame[]; swingTimes: number[] } | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [dragging, setDragging] = useState(false);
@@ -86,6 +131,10 @@ export function TrainScreen({
   const stageRef = useRef<StageHandle>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  // Set if the player paused while a clip was recording: the live frames then have a gap
+  // the clip doesn't, so the clip is re-analysed on its own instead.
+  const clipPaused = useRef(false);
 
   const model = usePoseLandmarker(true);
   const camera = useCamera();
@@ -187,7 +236,8 @@ export function TrainScreen({
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       if (!f || Math.abs(f.t - t) > 250) return ctx.clearRect(0, 0, canvas.width, canvas.height);
-      drawPose(ctx, f.lm, analyseFrame(playback.move, f.lm, handedness, aspect));
+      const nearSwing = playback.swingTimes.some((c) => t >= c - 1200 && t <= c + 700);
+      drawPose(ctx, f.lm, analyseFrame(nearSwing ? "clear" : "stance", f.lm, handedness, aspect));
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
@@ -211,7 +261,15 @@ export function TrainScreen({
       setProgress(0);
       setError(null);
       try {
-        const options = { move, handedness, onProgress: setProgress, signal: controller.signal };
+        // Uploads get the overall analysis (every clear and ready stance); a clip recorded
+        // in a live session is about the move being practised.
+        const options = {
+          move,
+          scope: source === "upload" ? ("full" as const) : ("move" as const),
+          handedness,
+          onProgress: setProgress,
+          signal: controller.signal,
+        };
         // A recorded clip reuses the poses the live coach detected while it was recording,
         // so its report matches the swings shown live. Re-detect only if live coaching
         // wasn't running (e.g. paused) and so captured too little.
@@ -219,7 +277,11 @@ export function TrainScreen({
           captured && captured.frames.length >= MIN_CAPTURED_FRAMES
             ? await reportFromFrames(blob, captured.frames, captured.aspect, options)
             : await analyseVideo(blob, model.detector, options);
-        if (source === "upload") setPlayback({ frames: result.frames, move });
+        if (source === "upload")
+          setPlayback({
+            frames: result.frames,
+            swingTimes: result.report.swings.map((s) => s.contactTimeMs),
+          });
         const lastT = result.frames[result.frames.length - 1]?.t ?? 0;
         onComplete(result.report, source, durationMs ?? lastT);
       } catch (err) {
@@ -284,15 +346,33 @@ export function TrainScreen({
   const record = async () => {
     // While recording, show only swings that belong to the clip.
     setClipBase(coach.collect().swings.length);
-    const blob = await recorder.record(camera.stream(), settings.recordSeconds * 1000, {
+    clipPaused.current = false;
+    // The stream is read when recording starts, so a camera switch during the countdown
+    // records from the new camera.
+    const blob = await recorder.record(() => camera.stream(), settings.recordSeconds * 1000, {
+      countdownSeconds: settings.countdownSeconds,
       onStart: () => {
         coach.startCapture();
         setClipBase(coach.collect().swings.length);
       },
     });
-    const captured = coach.stopCapture();
+    const capture = coach.stopCapture();
+    const captured = clipPaused.current ? null : capture;
     setClipBase(null);
     if (blob) await runAnalysis(blob, "record", settings.recordSeconds * 1000, captured);
+  };
+
+  const togglePause = () => {
+    if (paused) {
+      setPaused(false);
+      recorder.resume();
+      return;
+    }
+    setPaused(true);
+    if (recorder.recording) {
+      recorder.pause();
+      if (recorder.countdown === null) clipPaused.current = true;
+    }
   };
 
   const changeMove = (next: Move) => {
@@ -303,6 +383,9 @@ export function TrainScreen({
 
   const live = mode === "live";
   const busy = analysing || recorder.recording;
+  // Once the camera runs, the video takes over the screen and controls shrink to a bar.
+  const immersive = live && camera.cameraOn;
+  const recordingClip = recorder.recording && recorder.countdown === null;
   const shownSwings = clipBase === null ? coach.swings : coach.swings.slice(clipBase);
   const lastSwing = shownSwings[shownSwings.length - 1];
   const lastVerdict = lastSwing ? combineAnalyses(lastSwing.prep, lastSwing.contact) : null;
@@ -321,9 +404,15 @@ export function TrainScreen({
         ? model.retry
         : undefined;
 
+  useEffect(() => {
+    onImmersiveChange?.(immersive);
+  }, [immersive, onImmersiveChange]);
+  useEffect(() => () => onImmersiveChange?.(false), [onImmersiveChange]);
+  const showTour = immersive && model.status === "ready" && !settings.trainTourDone;
+
   const bigTimer = recorder.recording
     ? recorder.countdown !== null
-      ? `00:0${recorder.countdown}`
+      ? clock(recorder.countdown * 1000)
       : clock(recorder.remainingMs ?? 0)
     : !live
       ? analysing
@@ -347,16 +436,16 @@ export function TrainScreen({
         : "Last swing";
 
   return (
-    <div className="train">
+    <div className={`train ${immersive ? "immersive" : ""}`} ref={rootRef}>
       <Stage ref={stageRef} mirrored={mirrored} controls={!live && !!fileUrl && !analysing}>
         {/* Top chrome */}
         <div className="absolute inset-x-0 top-0 p-4 pt-[calc(16px+env(safe-area-inset-top,0px))] flex justify-between gap-3 pointer-events-none">
           <div className="pointer-events-auto min-w-0">
             <h1 className="stage-title text-[22px] font-semibold leading-tight">
-              {MOVE_LABEL[move]}
+              {live ? MOVE_LABEL[move] : "Video analysis"}
             </h1>
             <div className="flex flex-wrap gap-2 mt-3">
-              {(["stance", "clear"] as const).map((m) => (
+              {(live ? (["stance", "clear"] as const) : []).map((m) => (
                 <button
                   key={m}
                   type="button"
@@ -379,20 +468,35 @@ export function TrainScreen({
                 {live ? "Video" : "Live"}
               </button>
             </div>
+            {immersive && (
+              <div className="flex flex-wrap gap-2 mt-2" aria-live="off">
+                <span className="stat-chip glass" title="Session time">
+                  <Timer size={13} /> {clock(elapsedMs)}
+                </span>
+                <span className={`stat-chip glass ${recordingClip ? "text-fail" : ""}`}>
+                  {recordingClip && <span className="rec-dot" />}
+                  <span className="opacity-75 font-sans font-semibold">{bigLabel}</span> {bigTimer}
+                </span>
+                <span className="stat-chip glass">
+                  <span className="opacity-75 font-sans font-semibold">
+                    {move === "clear" ? "Swings" : "Checks"}
+                  </span>{" "}
+                  {move === "clear" ? shownSwings.length : `${passing}/${measured.length || 4}`}
+                </span>
+              </div>
+            )}
           </div>
-          {live && camera.cameraOn && (
+          {immersive && (
             <button
               type="button"
+              data-tour="end"
               className="round-btn pointer-events-auto shrink-0"
-              onClick={() => setPaused((p) => !p)}
-              aria-label={paused ? "Resume coaching" : "Pause coaching"}
-              disabled={busy}
+              onClick={endSession}
+              disabled={analysing}
+              aria-label="End session and see report"
+              title="End session"
             >
-              {paused ? (
-                <Play size={18} fill="currentColor" />
-              ) : (
-                <Pause size={18} fill="currentColor" />
-              )}
+              <Square size={16} fill="currentColor" />
             </button>
           )}
         </div>
@@ -451,7 +555,11 @@ export function TrainScreen({
           )}
           {paused && camera.cameraOn && (
             <div className="glass rounded-full px-4 py-2 text-sm font-semibold">
-              Coaching paused
+              {recorder.recording
+                ? recorder.countdown !== null
+                  ? "Countdown paused"
+                  : "Recording paused"
+                : "Coaching paused"}
             </div>
           )}
           {analysing && (
@@ -490,18 +598,20 @@ export function TrainScreen({
               <div className="mx-auto size-12 rounded-full bg-primary text-primary-foreground grid place-items-center mb-3">
                 <Video size={22} />
               </div>
-              <p className="font-semibold">Analyse a video</p>
+              <p className="font-semibold">Analyse a match or practice</p>
               <p className="text-sm text-stage-muted mt-1">
-                Film {move === "clear" ? "from where the net would be" : "facing the camera"}, whole
-                body in frame. MP4, MOV or WebM.
+                One report on your ready stance and every overhead clear. Whole body in frame,
+                filmed from where the net would be. MP4, MOV or WebM.
               </p>
             </div>
           )}
         </div>
 
         {/* Bottom-of-stage messages */}
-        <div className="absolute inset-x-4 bottom-12 flex flex-col gap-3">
-          {recorder.recording && recorder.countdown === null && (
+        <div
+          className={`absolute inset-x-4 flex flex-col gap-3 ${immersive ? "bottom-[calc(118px+env(safe-area-inset-bottom,0px))]" : "bottom-12"}`}
+        >
+          {recordingClip && (
             <div className="self-center glass rounded-full px-3.5 py-1.5 text-xs font-semibold flex items-center gap-2">
               <span className="rec-dot" /> REC
             </div>
@@ -536,9 +646,10 @@ export function TrainScreen({
       </Stage>
 
       {/* Bottom sheet */}
-      <section className="sheet" aria-label="Session">
+      <section className={`sheet ${immersive ? "sheet-compact" : ""}`} aria-label="Session">
         <button
           type="button"
+          data-tour="details"
           className="sheet-handle"
           onClick={() => setExpanded((e) => !e)}
           aria-expanded={expanded}
@@ -547,7 +658,9 @@ export function TrainScreen({
         >
           <span />
         </button>
-        <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
+        <div
+          className={`grid grid-cols-[1fr_auto_1fr] items-end gap-2 ${immersive ? "hidden" : ""}`}
+        >
           <div>
             <p className="stat-label">{live ? "Elapsed" : "Source"}</p>
             <p className="stat-value text-lg mt-1">{live ? clock(elapsedMs) : "Video"}</p>
@@ -559,12 +672,12 @@ export function TrainScreen({
             </p>
           </div>
           <div className="text-right">
-            <p className="stat-label">{!live ? "Move" : move === "clear" ? "Swings" : "Checks"}</p>
+            <p className="stat-label">
+              {!live ? "Checks" : move === "clear" ? "Swings" : "Checks"}
+            </p>
             <p className="stat-value text-lg mt-1">
               {!live
-                ? move === "clear"
-                  ? "Clear"
-                  : "Stance"
+                ? "All"
                 : move === "clear"
                   ? shownSwings.length
                   : `${passing}/${measured.length || 4}`}
@@ -573,18 +686,21 @@ export function TrainScreen({
         </div>
 
         {live ? (
-          <div className="flex items-center justify-between mt-4">
+          <div className={`flex items-center justify-between ${immersive ? "" : "mt-4"}`}>
             <button
               type="button"
+              data-tour="flip"
               className="round-btn"
               onClick={flipCamera}
-              disabled={!camera.cameraOn || busy}
+              disabled={!camera.cameraOn || analysing || recordingClip || camera.starting}
               aria-label="Switch camera"
+              title={recordingClip ? "Switch cameras before you record" : "Switch camera"}
             >
               <RefreshCw size={18} />
             </button>
             <button
               type="button"
+              data-tour="rec"
               className="record-btn"
               data-recording={recorder.recording}
               onClick={() => (recorder.recording ? recorder.cancel() : void record())}
@@ -599,12 +715,26 @@ export function TrainScreen({
             </button>
             <button
               type="button"
-              className="round-btn"
-              onClick={endSession}
-              disabled={!camera.cameraOn || busy}
-              aria-label="End session and see report"
+              data-tour="pause"
+              className={`round-btn ${paused ? "!bg-primary !text-primary-foreground" : ""}`}
+              onClick={togglePause}
+              disabled={!camera.cameraOn || analysing}
+              aria-pressed={paused}
+              aria-label={
+                paused
+                  ? "Resume"
+                  : recordingClip
+                    ? "Pause recording"
+                    : recorder.recording
+                      ? "Pause countdown"
+                      : "Pause coaching"
+              }
             >
-              <Square size={16} fill="currentColor" />
+              {paused ? (
+                <Play size={18} fill="currentColor" />
+              ) : (
+                <Pause size={18} fill="currentColor" />
+              )}
             </button>
           </div>
         ) : (
@@ -625,7 +755,7 @@ export function TrainScreen({
             <button
               type="button"
               className="h-12 px-4 rounded-full border border-border font-semibold text-sm flex items-center gap-2"
-              onClick={() => onExample(move)}
+              onClick={() => onExample("full")}
               disabled={analysing}
             >
               <Sparkles size={16} /> Example
@@ -657,11 +787,8 @@ export function TrainScreen({
             ) : (
               <ul className="text-sm text-muted-foreground space-y-2 list-disc pl-5">
                 <li>Use a steady camera at hip height, 2–3 m away.</li>
-                <li>
-                  {move === "clear"
-                    ? "Film from where the net would be, facing the player."
-                    : "Face the camera square-on."}
-                </li>
+                <li>Film from where the net would be, facing the player.</li>
+                <li>Clears and the ready stance you hold between shots are found automatically.</li>
                 <li>
                   The first {MAX_ANALYSIS_SECONDS} seconds are analysed. Your video never leaves
                   this device.
@@ -671,6 +798,14 @@ export function TrainScreen({
           </div>
         )}
       </section>
+
+      {showTour && (
+        <GuideTour
+          steps={liveTour(settings)}
+          container={rootRef}
+          onDone={() => onSettings({ trainTourDone: true })}
+        />
+      )}
 
       <input
         ref={inputRef}

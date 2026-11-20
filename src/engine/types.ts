@@ -44,9 +44,16 @@ export interface SwingReport {
   score: number | null;
   /** Forehand or backhand clear (optional for sessions saved before strokes were detected). */
   stroke?: "forehand" | "backhand";
+  /** Overall analysis only: a clear attempt whose racket hand never got above the head. */
+  low?: boolean;
 }
 export interface ReportData {
   move: Move;
+  /**
+   * "full": an overall analysis of a whole video (every clear plus the ready stance held
+   * between shots). Absent or "move" for a report on one move.
+   */
+  scope?: "move" | "full";
   score: number | null;
   swings: SwingReport[];
   stance?: Analysis;

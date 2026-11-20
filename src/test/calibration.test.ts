@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Frame, ReportData } from "@/engine/types";
-import { buildReport } from "@/engine/report";
+import { buildFullReport, buildReport } from "@/engine/report";
 import reference from "./fixtures/reference-poses.json";
 
 /**
@@ -84,5 +84,53 @@ describe("calibration on the reference clips", () => {
     expect(good.score).toBeGreaterThanOrEqual(80);
     expect(bad.score).toBeLessThan(good.score!);
     expect(bad.stance?.checks.find((c) => c.id === "feet_apart")?.status).toBe("fail");
+  });
+});
+
+describe("overall video analysis on the reference clips", () => {
+  const full = (id: string) => {
+    const { frames, aspect } = load(id);
+    return buildFullReport(frames, "right", aspect).report;
+  };
+  const clearScore = (r: ReportData) => {
+    const s = r.swings.map((w) => w.score ?? 0);
+    return s.length ? s.reduce((a, b) => a + b, 0) / s.length : null;
+  };
+
+  it("scores a good ready stance video on its stance, with no swings invented", () => {
+    const good = full("stance-good");
+    const bad = full("stance-bad");
+    expect(good.scope).toBe("full");
+    expect(good.swings).toHaveLength(0);
+    expect(bad.swings).toHaveLength(0);
+    expect(good.stance?.score).toBeGreaterThanOrEqual(80);
+    expect(good.score!).toBeGreaterThan(bad.score!);
+  });
+
+  it("finds clears and the ready stance between them in the same video", () => {
+    const fh = full("fh-clear-good");
+    expect(fh.swings).toHaveLength(6);
+    expect(fh.swings.some((s) => s.low)).toBe(false);
+    expect(fh.stance).toBeDefined();
+    expect(fh.score).toBeGreaterThanOrEqual(80);
+    expect(full("bh-clear-good").swings).toHaveLength(5);
+  });
+
+  it("counts clear attempts that stay below head height instead of ignoring them", () => {
+    const good = clearScore(full("fh-clear-good"))!;
+    for (const id of ["fh-clear-bad-2", "bh-clear-bad"]) {
+      const r = full(id);
+      expect(r.swings.length, id).toBeGreaterThan(0);
+      expect(
+        r.swings.every((s) => s.low),
+        id,
+      ).toBe(true);
+      expect(clearScore(r)!, id).toBeLessThan(good);
+      expect(r.score!, id).toBeLessThan(full("fh-clear-good").score!);
+    }
+  });
+
+  it("ranks bad clear technique well below good overall", () => {
+    expect(full("fh-clear-bad").score).toBeLessThanOrEqual(40);
   });
 });

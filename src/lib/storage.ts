@@ -19,10 +19,14 @@ export interface Settings {
   handedness: Handedness;
   defaultMove: Move;
   recordSeconds: number;
+  /** Countdown before a clip records, seconds (0 = start straight away). */
+  countdownSeconds: number;
   facing: Facing;
   showGuide: boolean;
   /** First-visit screentips tour has been completed or skipped. */
   tourDone: boolean;
+  /** Live-session screentips (shown the first time the camera starts) have been seen. */
+  trainTourDone: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -30,9 +34,11 @@ export const DEFAULT_SETTINGS: Settings = {
   handedness: "right",
   defaultMove: "stance",
   recordSeconds: 5,
+  countdownSeconds: 3,
   facing: "user",
   showGuide: true,
   tourDone: false,
+  trainTourDone: false,
 };
 
 export const SESSIONS_KEY = "liftoff.sessions.v1";

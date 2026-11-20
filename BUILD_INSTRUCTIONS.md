@@ -62,6 +62,16 @@ a second router or a `src/pages` directory.
   originals in `testvids/` (gitignored), about 150–340 KB each. Mistake notes describe what the
   engine measured on each clip. To re-cut: `ffmpeg -ss <start> -i <src> -t <len> -an
   -vf scale=720:-2,fps=30 -c:v libx264 -crf 27 -movflags +faststart <name>.mp4`.
+- **Tutorial skeletons**: each clip has a pose track (`public/tutorials/*.pose.json`, cut from the
+  calibration fixture with the clip's `trim`; regenerate with `bun run tutorial-poses`). The
+  overlay is coloured by the engine's own verdict on that clip (`lib/tutorialVerdict.ts`).
+- **Live session**: once the camera runs the video fills the screen, the bottom nav hides and
+  the sheet shrinks to a bar (switch camera · record · pause); End session sits top-right and
+  session stats become chips on the video. Pause also holds a countdown or recording
+  (MediaRecorder pause); a clip paused mid-recording is re-analysed from the video because
+  the live frames have a gap. Switch camera is locked only while a clip records. First-run
+  screentips (`settings.trainTourDone`) explain the bar. Countdown length is a setting
+  (Off / 3 / 5 / 10 s).
 - **Reports** (bottom nav), **Practice** (live / record / upload), **Profile**.
 
 ## Flows
@@ -73,8 +83,15 @@ a second router or a `src/pages` directory.
    `stopCapture` in `useLiveCoach`, `reportFromFrames` in `engine/video.ts`), so it matches the
    swings shown live; the clip is only re-read for snapshots. If live coaching captured too few
    frames (e.g. paused) the clip is re-detected like an upload.
-3. **Upload**: choose/drop a video (first 90 s analysed). The clip then plays back in the stage
-   with the analysed skeleton overlaid.
+3. **Upload (overall analysis)**: choose/drop a video (first 90 s analysed). `buildFullReport`
+   (`engine/report.ts`, `scope: "full"`) scores every overhead clear **and** the ready stance
+   held between shots in one report: overall score = average of the stance score and the
+   clears score. Ready-stance moments are frames where the player faces the camera, is
+   still for ±250 ms, has the racket hand below the shoulder and is clear of any swing
+   (`stanceFrames`). Clear attempts that never reach head height (`LOW_SWING` thresholds)
+   are counted and flagged "Below head height", unless they fall in a real clear's
+   preparation or follow-through. Playback colours the skeleton with clear checks around
+   swings and stance checks elsewhere. Recorded clips from a live session stay per-move.
 
 ## Calibration
 

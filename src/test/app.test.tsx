@@ -48,6 +48,32 @@ describe("camera", () => {
   });
 });
 
+class PausableRecorder {
+  static last: PausableRecorder | null = null;
+  static isTypeSupported = (t: string) => t === "video/webm";
+  state: "inactive" | "recording" | "paused" = "inactive";
+  mimeType = "video/webm";
+  ondataavailable: ((e: { data: Blob }) => void) | null = null;
+  onstop: (() => void) | null = null;
+  constructor() {
+    PausableRecorder.last = this;
+  }
+  start() {
+    this.state = "recording";
+  }
+  pause() {
+    this.state = "paused";
+  }
+  resume() {
+    this.state = "recording";
+  }
+  stop() {
+    this.state = "inactive";
+    this.ondataavailable?.({ data: new Blob(["clip"], { type: "video/webm" }) });
+    this.onstop?.();
+  }
+}
+
 describe("recorder", () => {
   it("counts down 3–2–1, records for the set time and returns the clip", async () => {
     vi.useFakeTimers();
@@ -85,6 +111,59 @@ describe("recorder", () => {
     const blob = await pending;
     expect(blob?.type).toBe("video/webm");
     expect(result.current.recording).toBe(false);
+  });
+
+  it("uses the countdown length from settings, and can skip it", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("MediaRecorder", PausableRecorder);
+    const { result } = renderHook(() => useRecorder());
+    const onStart = vi.fn();
+    act(() => {
+      void result.current.record({} as MediaStream, 1000, { countdownSeconds: 5, onStart });
+    });
+    expect(result.current.countdown).toBe(5);
+    await act(() => vi.advanceTimersByTimeAsync(4900));
+    expect(onStart).not.toHaveBeenCalled();
+    await act(() => vi.advanceTimersByTimeAsync(200));
+    expect(onStart).toHaveBeenCalledTimes(1);
+    await act(() => vi.advanceTimersByTimeAsync(1100));
+
+    const onStartNow = vi.fn();
+    act(() => {
+      void result.current.record({} as MediaStream, 1000, {
+        countdownSeconds: 0,
+        onStart: onStartNow,
+      });
+    });
+    await act(() => vi.advanceTimersByTimeAsync(10));
+    expect(onStartNow).toHaveBeenCalledTimes(1);
+    expect(result.current.countdown).toBe(null);
+  });
+
+  it("pause holds the countdown and the clip length", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("MediaRecorder", PausableRecorder);
+    const { result } = renderHook(() => useRecorder());
+    let pending: Promise<Blob | null> | undefined;
+    act(() => {
+      pending = result.current.record({} as MediaStream, 2000, { countdownSeconds: 1 });
+    });
+    act(() => result.current.pause());
+    await act(() => vi.advanceTimersByTimeAsync(3000));
+    expect(result.current.countdown).toBe(1); // held while paused
+    act(() => result.current.resume());
+    await act(() => vi.advanceTimersByTimeAsync(1100));
+    expect(result.current.countdown).toBe(null);
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    act(() => result.current.pause());
+    expect(PausableRecorder.last?.state).toBe("paused");
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    expect(result.current.recording).toBe(true); // paused time doesn't count
+    expect(result.current.remainingMs).toBeGreaterThan(0);
+    act(() => result.current.resume());
+    await act(() => vi.advanceTimersByTimeAsync(1100));
+    expect(result.current.recording).toBe(false);
+    expect(await pending).toBeInstanceOf(Blob);
   });
 
   it("reports when recording is unsupported", async () => {
