@@ -3,15 +3,10 @@ import type { Analysis, Frame, Handedness, Move, SwingReport } from "@/engine/ty
 import type { PoseDetector } from "@/engine/detector";
 import type { StageHandle } from "@/components/Stage";
 import { syncCanvas } from "@/components/Stage";
-import {
-  analyseClearContact,
-  analyseClearPrep,
-  analyseFrame,
-  combineAnalyses,
-} from "@/engine/analysis";
+import { analyseSwing, analyseFrame, combineAnalyses } from "@/engine/analysis";
 import { drawPose } from "@/engine/draw";
 import { wholeBodyVisible } from "@/engine/pose";
-import { detectSwings, SWING } from "@/engine/swings";
+import { findSwings, SWING } from "@/engine/swings";
 import type { LiveSample } from "@/engine/live";
 import { FrameRing } from "@/lib/frameRing";
 
@@ -63,6 +58,8 @@ export function useLiveCoach({
   const inForm = useRef({ since: -1, best: 0 });
   const ring = useRef<FrameRing | null>(null);
   const sessionStart = useRef<number | null>(null);
+  // Frames captured for a recorded clip, timed from the moment recording started.
+  const capture = useRef<{ t0: number; frames: Frame[]; aspect: number } | null>(null);
 
   const reset = useCallback(() => {
     samples.current = [];
@@ -78,7 +75,7 @@ export function useLiveCoach({
 
   useEffect(() => {
     if (!active || !detector) return;
-    ring.current ??= new FrameRing(60);
+    ring.current ??= new FrameRing(75);
     const overlay = stageRef.current?.canvas;
     const buffer: Frame[] = [];
     sessionStart.current ??= performance.now();
@@ -120,6 +117,11 @@ export function useLiveCoach({
       } else f.since = -1;
 
       if (lm) {
+        const clip = capture.current;
+        if (clip) {
+          clip.frames.push({ t: now - clip.t0, lm });
+          clip.aspect = aspect;
+        }
         buffer.push({ t, lm });
         while (buffer.length && (buffer[0]?.t ?? t) < t - BUFFER_MS) buffer.shift();
       }
@@ -141,19 +143,24 @@ export function useLiveCoach({
         ring.current?.push(video, t);
         if (t - lastSwingCheck >= SWING_CHECK_MS) {
           lastSwingCheck = t;
-          for (const s of detectSwings(buffer, handedness, aspect)) {
+          // Same detector as clip reports (incl. the other-arm fallback) so they agree.
+          const found = findSwings(buffer, handedness, aspect);
+          for (const s of found.swings) {
             const contact = buffer[s.contactIndex];
             const prepFrame = buffer[s.prepIndex];
             if (!contact || !prepFrame) continue;
             // Wait until the peak window has passed so the contact is final.
             if (
               contact.t <= lastContact + SWING.minGapMs ||
-              t - contact.t < SWING.peakWindowMs + 50
+              t - contact.t < SWING.followThroughMs + 50
             )
               continue;
             lastContact = contact.t;
-            const prep = analyseClearPrep(prepFrame.lm, handedness, aspect);
-            const hit = analyseClearContact(contact.lm, handedness, aspect);
+            const {
+              prep,
+              contact: hit,
+              stroke,
+            } = analyseSwing(buffer, s, found.handedness, aspect);
             const prepSnapshot = ring.current?.snapshot(prepFrame.t, prepFrame.lm, prep, mirrored);
             const contactSnapshot = ring.current?.snapshot(contact.t, contact.lm, hit, mirrored);
             swings.current = [
@@ -165,6 +172,7 @@ export function useLiveCoach({
                 prep,
                 contact: hit,
                 score: combineAnalyses(prep, hit).score,
+                stroke,
                 ...(prepSnapshot ? { prepSnapshot } : {}),
                 ...(contactSnapshot ? { contactSnapshot } : {}),
               },
@@ -199,5 +207,17 @@ export function useLiveCoach({
     [],
   );
 
-  return { ...state, reset, collect };
+  /** Start keeping every detected frame, timed from now (call when recording starts). */
+  const startCapture = useCallback(() => {
+    capture.current = { t0: performance.now(), frames: [], aspect: 16 / 9 };
+  }, []);
+
+  /** Stop capturing and return the frames gathered since `startCapture`. */
+  const stopCapture = useCallback(() => {
+    const clip = capture.current;
+    capture.current = null;
+    return clip ? { frames: clip.frames, aspect: clip.aspect } : null;
+  }, []);
+
+  return { ...state, reset, collect, startCapture, stopCapture };
 }

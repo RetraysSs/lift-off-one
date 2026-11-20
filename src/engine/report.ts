@@ -1,7 +1,7 @@
 import type { Analysis, Frame, Handedness, Move, ReportData, SwingReport } from "./types";
-import { analyseClearContact, analyseClearPrep, analyseStance, combineAnalyses } from "./analysis";
+import { analyseStance, analyseSwing, combineAnalyses } from "./analysis";
 import { WHOLE_BODY, visible } from "./pose";
-import { detectSwings } from "./swings";
+import { diagnoseSwings, findSwings } from "./swings";
 
 /** A frame that should be captured as a report snapshot, with the analysis drawn on it. */
 export interface KeyFrame {
@@ -36,14 +36,20 @@ function setSnapshot(
   if (swing) swing[key] = url;
 }
 
-/** Picks the most representative stance frame: the median-scoring whole-body frame. */
+/**
+ * Picks the frame that represents how the player stands once set: the 75th-percentile
+ * score among whole-body frames. A clip usually includes stepping in and standing up,
+ * and the median frame can land on one of those moments.
+ */
+const SETTLED_QUANTILE = 0.75;
+
 function pickStanceFrame(frames: Frame[], handedness: Handedness, aspect: number) {
   const scored = frames
     .map((f, i) => ({ i, f }))
     .filter(({ f }) => visible(f.lm, ...WHOLE_BODY))
     .map(({ i, f }) => ({ i, analysis: analyseStance(f.lm, handedness, aspect) }))
     .sort((a, b) => (a.analysis.score ?? -1) - (b.analysis.score ?? -1) || a.i - b.i);
-  const median = scored[Math.floor((scored.length - 1) / 2)];
+  const median = scored[Math.floor((scored.length - 1) * SETTLED_QUANTILE)];
   if (median) return median;
   let best = 0;
   frames.forEach((f, i) => {
@@ -78,13 +84,15 @@ export function buildReport(
     };
   }
 
-  const swings = detectSwings(frames, handedness, aspect);
+  const found = findSwings(frames, handedness, aspect);
+  const { swings } = found;
+  // Run the arm checks on whichever arm actually swung.
+  const arm = found.handedness;
   const keyFrames: KeyFrame[] = [];
   const reports: SwingReport[] = swings.map((s, n) => {
     const prepFrame = frameAt(frames, s.prepIndex);
     const contactFrame = frameAt(frames, s.contactIndex);
-    const prep = analyseClearPrep(prepFrame.lm, handedness, aspect);
-    const contact = analyseClearContact(contactFrame.lm, handedness, aspect);
+    const { prep, contact, stroke } = analyseSwing(frames, s, arm, aspect);
     keyFrames.push(
       {
         frameIndex: s.prepIndex,
@@ -104,11 +112,24 @@ export function buildReport(
       prep,
       contact,
       score: combineAnalyses(prep, contact).score,
+      stroke,
     };
   });
   const scored = reports.map((r) => r.score).filter((s): s is number => s !== null);
   const score = scored.length
     ? Math.round(scored.reduce((a, b) => a + b, 0) / scored.length)
     : null;
-  return { report: { move, score, swings: reports }, keyFrames };
+  const notice =
+    reports.length === 0
+      ? diagnoseSwings(frames, handedness, aspect).message
+      : arm !== handedness
+        ? swungOtherArmNotice(arm)
+        : undefined;
+  return { report: { move, score, swings: reports, ...(notice ? { notice } : {}) }, keyFrames };
+}
+
+/** Shown when swings were found on the arm opposite to the Racket hand setting. */
+export function swungOtherArmNotice(arm: Handedness) {
+  const Arm = arm === "right" ? "Right" : "Left";
+  return `Your swings were tracked on your ${arm} arm, so it was used as your racket arm. If you play ${arm}-handed, set Racket hand to ${Arm} in Profile. If not, the camera mixed up your arms; turn a little more side-on.`;
 }

@@ -1,11 +1,26 @@
-import type { Analysis, CheckResult, Handedness, Landmark, Move } from "./types";
-import { THRESHOLDS as T } from "./config";
-import { LM, angle, get, dist, freeSide, mid, pt, racketSide, torsoLength, visible } from "./pose";
+import type { Analysis, CheckResult, Frame, Handedness, Landmark, Move, Swing } from "./types";
+import { MIN_VISIBILITY, MIN_WRIST_VISIBILITY, THRESHOLDS as T } from "./config";
+import {
+  LM,
+  angle,
+  get,
+  dist,
+  freeSide,
+  mid,
+  pt,
+  racketSide,
+  torsoLength,
+  torsoScale,
+  visible,
+} from "./pose";
 
 const round = (n: number, digits = 0) => {
   const f = 10 ** digits;
   return Math.round(n * f) / f;
 };
+
+/** The racket wrist at contact is usually motion-blurred; accept it at lower confidence. */
+const wristSeen = (lm: Landmark[], i: number) => (lm[i]?.visibility ?? 0) >= MIN_WRIST_VISIBILITY;
 
 const UNSEEN_TIP = "Keep your whole body in frame so this can be measured.";
 
@@ -96,18 +111,24 @@ function feetApart(lm: Landmark[], aspect: number): CheckResult {
   };
 }
 
-function racketUp(lm: Landmark[], handedness: Handedness): CheckResult {
+/**
+ * The pose model tracks the hand, not the racket, so this only checks the racket hand is
+ * held up at waist height or above rather than hanging down by the side.
+ */
+function racketUp(lm: Landmark[], handedness: Handedness, aspect: number): CheckResult {
   const side = racketSide(handedness);
-  const base = { id: "racket_up", name: "Racket up", target: "wrist above elbow" };
-  if (!visible(lm, side.wrist, side.elbow)) return skip(base);
-  const pass = get(lm, side.wrist).y < get(lm, side.elbow).y;
+  const base = { id: "racket_up", name: "Racket up", target: "hand at waist height or above" };
+  const scale = torsoScale(lm, aspect);
+  if (!visible(lm, side.wrist, LM.leftHip, LM.rightHip) || scale === null) return skip(base);
+  const hipY = (get(lm, LM.leftHip).y + get(lm, LM.rightHip).y) / 2;
+  const pass = (hipY - get(lm, side.wrist).y) / scale >= -T.racketBelowHip;
   return {
     ...base,
     status: pass ? "pass" : "fail",
     value: null,
     tip: pass
       ? "Keep your racket up and ready."
-      : "Lift your racket hand above your elbow so you're ready to react.",
+      : "Bring your racket hand up in front of you so you're ready to react.",
     joints: [side.shoulder, side.elbow, side.wrist],
     focusJoint: pass ? null : side.wrist,
   };
@@ -149,122 +170,245 @@ export function analyseStance(lm: Landmark[], handedness: Handedness, aspect = 1
   return analysis([
     kneesBent(lm, aspect),
     feetApart(lm, aspect),
-    racketUp(lm, handedness),
+    racketUp(lm, handedness, aspect),
     weightForward(lm, aspect),
   ]);
 }
 
 // ---------- Overhead clear ----------
+//
+// Swing checks look at a window of frames rather than one moment: preparation happens
+// over the second before contact, and contact is judged at its best within ±150 ms.
+// Thresholds are calibrated on the coach's good/bad reference clips (see
+// src/test/fixtures/reference-poses.json and the calibration tests).
 
-function sideOn(lm: Landmark[], aspect: number): CheckResult {
+export type Stroke = "forehand" | "backhand";
+
+/** Windows (ms before/around contact) used to judge a swing. */
+export const SWING_WINDOWS = { prepMs: 1000, elbowMs: 600, contactMs: 150 };
+
+const finite = (xs: (number | null)[]) =>
+  xs.filter((x): x is number => x !== null && Number.isFinite(x));
+
+/** Height of joint `i` above `shoulder`, in torso lengths (null if unseen). */
+function heightAboveShoulder(
+  lm: Landmark[],
+  i: number,
+  shoulder: number,
+  aspect: number,
+  minVis = MIN_WRIST_VISIBILITY,
+) {
+  const scale = torsoScale(lm, aspect);
+  if (scale === null || !visible(lm, shoulder) || (lm[i]?.visibility ?? 0) < minVis) return null;
+  return (get(lm, shoulder).y - get(lm, i).y) / scale;
+}
+
+/**
+ * A backhand clear is hit with the back to the net. Filmed as in the reference clips,
+ * the player's back faces the camera, which flips the image order of the shoulders.
+ */
+export function strokeOf(lm: Landmark[], aspect: number): Stroke {
+  const scale = torsoScale(lm, aspect);
+  if (scale === null || !visible(lm, LM.leftShoulder, LM.rightShoulder)) return "forehand";
+  const signed = ((get(lm, LM.leftShoulder).x - get(lm, LM.rightShoulder).x) * aspect) / scale;
+  return signed <= T.backhandShoulders ? "backhand" : "forehand";
+}
+
+/** The frame in a window where `score` is highest. */
+function best(win: Landmark[][], score: (lm: Landmark[]) => number | null) {
+  let top = -Infinity;
+  let found = false;
+  for (const lm of win) {
+    const v = score(lm);
+    if (v !== null && v > top) {
+      top = v;
+      found = true;
+    }
+  }
+  return found ? { value: top } : null;
+}
+
+function sideOn(win: Landmark[][], aspect: number): CheckResult {
   const base = { id: "side_on", name: "Side-on position", target: `< ${T.sideOnRatio}` };
-  const ratio = sideOnRatio(lm, aspect);
-  if (ratio === null) return skip(base);
-  const value = round(ratio, 2);
+  const ratios = finite(win.map((lm) => sideOnRatio(lm, aspect)));
+  if (ratios.length === 0) return skip(base);
+  const value = round(Math.min(...ratios), 2);
   const pass = value < T.sideOnRatio;
   return {
     ...base,
     status: pass ? "pass" : "fail",
     value,
     tip: pass
-      ? "Good position. Keep your shoulders side-on."
+      ? "Good position. You turned side-on to prepare."
       : "Turn side-on so your free shoulder points toward the net.",
     joints: [LM.leftShoulder, LM.rightShoulder, LM.leftHip, LM.rightHip],
     focusJoint: pass ? null : LM.leftShoulder,
   };
 }
 
-function freeArmUp(lm: Landmark[], handedness: Handedness): CheckResult {
+function freeArmUp(
+  win: Landmark[][],
+  handedness: Handedness,
+  aspect: number,
+  stroke: Stroke,
+): CheckResult {
   const side = freeSide(handedness);
   const base = { id: "free_arm_up", name: "Free arm raised", target: "wrist above shoulder" };
-  if (!visible(lm, side.wrist, side.shoulder)) return skip(base);
-  const pass = get(lm, side.wrist).y < get(lm, side.shoulder).y;
+  if (stroke === "backhand")
+    return skip(base, "Not needed on a backhand: your free arm stays low for balance.");
+  const top = best(win, (lm) =>
+    heightAboveShoulder(lm, side.wrist, side.shoulder, aspect, MIN_VISIBILITY),
+  );
+  if (!top) return skip(base);
+  const pass = top.value > T.freeArmAbove;
   return {
     ...base,
     status: pass ? "pass" : "fail",
     value: null,
     tip: pass
-      ? "Good balance. Your free arm is tracking the shuttle."
+      ? "Good balance. Your free arm pointed up at the shuttle."
       : "Raise your other arm to point at the shuttle for balance.",
     joints: [side.shoulder, side.elbow, side.wrist],
     focusJoint: pass ? null : side.wrist,
   };
 }
 
-function elbowHigh(lm: Landmark[], handedness: Handedness, aspect: number): CheckResult {
+function elbowHigh(win: Landmark[][], handedness: Handedness, aspect: number): CheckResult {
   const side = racketSide(handedness);
-  const base = { id: "elbow_high", name: "Elbow high", target: "elbow at or above shoulder" };
-  if (!visible(lm, side.elbow, side.shoulder, LM.leftHip, LM.rightHip)) return skip(base);
-  const tolerance = T.elbowTolerance * torsoLength(lm, aspect);
-  const pass = get(lm, side.elbow).y <= get(lm, side.shoulder).y + tolerance;
+  const base = {
+    id: "elbow_high",
+    name: "Elbow high",
+    target: `elbow ≥ ${T.elbowAbove}× torso above shoulder`,
+  };
+  const top = best(win, (lm) =>
+    heightAboveShoulder(lm, side.elbow, side.shoulder, aspect, MIN_VISIBILITY),
+  );
+  if (!top) return skip(base);
+  const pass = top.value >= T.elbowAbove;
   return {
     ...base,
     status: pass ? "pass" : "fail",
     value: null,
     tip: pass
-      ? "Good preparation. Keep your elbow high."
-      : "Lift your racket elbow to shoulder height before you swing.",
+      ? "Good preparation. Your elbow was up high."
+      : "Lift your racket elbow above shoulder height before you swing.",
     joints: [side.shoulder, side.elbow],
     focusJoint: pass ? null : side.elbow,
   };
 }
 
-function fullExtension(lm: Landmark[], handedness: Handedness, aspect: number): CheckResult {
+function fullExtension(win: Landmark[][], handedness: Handedness, aspect: number): CheckResult {
   const side = racketSide(handedness);
-  const base = { id: "full_extension", name: "Full arm extension", target: `> ${T.extension}°` };
-  if (!visible(lm, side.shoulder, side.elbow, side.wrist)) return skip(base);
-  const value = round(
-    angle(pt(lm, side.shoulder, aspect), pt(lm, side.elbow, aspect), pt(lm, side.wrist, aspect)),
+  const base = { id: "full_extension", name: "Full arm extension", target: `≥ ${T.extension}°` };
+  const top = best(win, (lm) =>
+    visible(lm, side.shoulder, side.elbow) && wristSeen(lm, side.wrist)
+      ? angle(pt(lm, side.shoulder, aspect), pt(lm, side.elbow, aspect), pt(lm, side.wrist, aspect))
+      : null,
   );
-  const pass = value > T.extension;
+  if (!top) return skip(base);
+  const value = round(top.value);
+  const pass = value >= T.extension;
   return {
     ...base,
     status: pass ? "pass" : "fail",
     value,
     tip: pass
-      ? "Great reach. You're hitting at full stretch."
+      ? "Great reach. You hit at full stretch."
       : "Reach up and hit at full stretch. Your arm is bent at contact.",
     joints: [side.shoulder, side.elbow, side.wrist],
     focusJoint: pass ? null : side.elbow,
   };
 }
 
-function contactHigh(lm: Landmark[], handedness: Handedness): CheckResult {
+function reachHigh(win: Landmark[][], handedness: Handedness, aspect: number): CheckResult {
   const side = racketSide(handedness);
-  const base = { id: "contact_high", name: "Contact above head", target: "wrist above head" };
-  if (!visible(lm, side.wrist, LM.nose)) return skip(base);
-  const pass = get(lm, side.wrist).y < get(lm, LM.nose).y;
+  const base = {
+    id: "contact_high",
+    name: "Reach at contact",
+    target: `wrist ≥ ${T.reach}× torso above shoulder`,
+  };
+  const top = best(win, (lm) => heightAboveShoulder(lm, side.wrist, side.shoulder, aspect));
+  if (!top) return skip(base);
+  const value = round(top.value, 2);
+  const pass = value >= T.reach;
   return {
     ...base,
     status: pass ? "pass" : "fail",
-    value: null,
+    value,
     tip: pass
       ? "Good contact point, high above your head."
-      : "Meet the shuttle higher, above and slightly in front of your head.",
+      : "Meet the shuttle higher, at full reach above your head.",
     joints: [side.elbow, side.wrist],
     focusJoint: pass ? null : side.wrist,
   };
 }
 
-/** Preparation checks for the overhead clear (also used as live feedback between swings). */
+/** Preparation checks over a window of frames (the second before contact). */
+export function analyseClearPrepWindow(
+  win: Landmark[][],
+  handedness: Handedness,
+  aspect = 16 / 9,
+  stroke: Stroke = "forehand",
+  elbowWin: Landmark[][] = win,
+): Analysis {
+  return analysis([
+    sideOn(win, aspect),
+    freeArmUp(win, handedness, aspect, stroke),
+    elbowHigh(elbowWin, handedness, aspect),
+  ]);
+}
+
+/** Contact checks over the frames around contact. */
+export function analyseClearContactWindow(
+  win: Landmark[][],
+  handedness: Handedness,
+  aspect = 16 / 9,
+): Analysis {
+  return analysis([fullExtension(win, handedness, aspect), reachHigh(win, handedness, aspect)]);
+}
+
+/** Preparation checks on a single frame: live feedback between swings. */
 export function analyseClearPrep(
   lm: Landmark[],
   handedness: Handedness,
   aspect = 16 / 9,
 ): Analysis {
-  return analysis([
-    sideOn(lm, aspect),
-    freeArmUp(lm, handedness),
-    elbowHigh(lm, handedness, aspect),
-  ]);
+  return analyseClearPrepWindow([lm], handedness, aspect, strokeOf(lm, aspect));
 }
 
+/** Contact checks on a single frame. */
 export function analyseClearContact(
   lm: Landmark[],
   handedness: Handedness,
   aspect = 16 / 9,
 ): Analysis {
-  return analysis([fullExtension(lm, handedness, aspect), contactHigh(lm, handedness)]);
+  return analyseClearContactWindow([lm], handedness, aspect);
+}
+
+/**
+ * Scores one detected swing: preparation over the second before contact (elbow over
+ * the last 0.6 s), contact at its best within ±150 ms, stroke from the contact frame.
+ */
+export function analyseSwing(
+  frames: Frame[],
+  swing: Swing,
+  handedness: Handedness,
+  aspect = 16 / 9,
+): { prep: Analysis; contact: Analysis; stroke: Stroke } {
+  const contact = frames[swing.contactIndex];
+  if (!contact) throw new RangeError("Swing contact is outside the frames");
+  const within = (from: number, to: number) =>
+    frames.filter((f) => f.t >= contact.t + from && f.t <= contact.t + to).map((f) => f.lm);
+  const stroke = strokeOf(contact.lm, aspect);
+  const prep = analyseClearPrepWindow(
+    within(-SWING_WINDOWS.prepMs, 0),
+    handedness,
+    aspect,
+    stroke,
+    within(-SWING_WINDOWS.elbowMs, 0),
+  );
+  const near = within(-SWING_WINDOWS.contactMs, SWING_WINDOWS.contactMs);
+  return { prep, contact: analyseClearContactWindow(near, handedness, aspect), stroke };
 }
 
 /** Prep and contact checks merged into one verdict for a whole swing. */

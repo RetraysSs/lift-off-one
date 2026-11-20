@@ -1,4 +1,4 @@
-import { ChevronDown, TriangleAlert } from "lucide-react";
+import { ChevronDown, Info, TriangleAlert } from "lucide-react";
 import type { ReportData } from "@/engine/types";
 import { combineAnalyses } from "@/engine/analysis";
 import { Score, CheckList, TipCard, measuredValue } from "@/components/FeedbackPanel";
@@ -39,14 +39,24 @@ export function Report({ report }: { report: ReportData }) {
         </section>
       )}
 
+      {report.move === "clear" && report.swings.length > 0 && report.notice && (
+        <div className="mt-4 rounded-2xl bg-accent text-accent-foreground p-4 flex gap-3 text-sm">
+          <Info size={18} className="shrink-0" />
+          <p>{report.notice}</p>
+        </div>
+      )}
+
       {report.move === "clear" &&
         (report.swings.length === 0 ? (
           <div className="mt-4 rounded-2xl bg-warning-soft text-warning p-4 flex gap-3 text-sm">
             <TriangleAlert size={18} className="shrink-0" />
-            <p>
-              No swing detected. Stand side-on with your whole body in frame and swing your racket
-              arm fully above your head.
-            </p>
+            <div>
+              <p className="font-semibold">No swing detected</p>
+              <p className="mt-1">
+                {report.notice ??
+                  "Put your phone where the net would be, facing you, with your whole body in frame, and swing your racket arm fully above your head."}
+              </p>
+            </div>
           </div>
         ) : (
           report.swings.map((swing) => {
@@ -57,6 +67,11 @@ export function Report({ report }: { report: ReportData }) {
                 <div className="flex justify-between items-center mb-3">
                   <h3 className="font-semibold text-sm">
                     Swing {swing.index}
+                    {swing.stroke && (
+                      <span className="ml-2 rounded-full bg-accent text-accent-foreground px-2 py-0.5 text-[11px] font-semibold">
+                        {swing.stroke === "backhand" ? "Backhand" : "Forehand"}
+                      </span>
+                    )}
                     <span className="text-muted-foreground font-normal ml-2 text-xs">
                       at {seconds(swing.contactTimeMs)}
                     </span>

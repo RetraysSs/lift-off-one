@@ -7,7 +7,7 @@ export function Snapshot({ src, label }: { src?: string; label: string }) {
     <figure>
       <div className="snapshot">
         {src ? (
-          <img src={src} alt={label} className="h-full w-full object-contain" />
+          <img src={src} alt={label} />
         ) : (
           <div className="flex flex-col items-center gap-2">
             <ImageIcon size={22} strokeWidth={1.3} />

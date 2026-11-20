@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { ShieldCheck, Trash2 } from "lucide-react";
+import { CircleHelp, ShieldCheck, Trash2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { LogoMark } from "@/components/LogoMark";
 import type { Settings } from "@/lib/storage";
@@ -61,11 +61,13 @@ export function ProfileScreen({
   onChange,
   sessionCount,
   onClearHistory,
+  onReplayTour,
 }: {
   settings: Settings;
   onChange: (patch: Partial<Settings>) => void;
   sessionCount: number;
   onClearHistory: () => void;
+  onReplayTour: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
   return (
@@ -145,6 +147,20 @@ export function ProfileScreen({
             onCheckedChange={(showGuide) => onChange({ showGuide })}
           />
         </Row>
+      </div>
+
+      <h2 className="eyebrow mt-6 mb-2">Help</h2>
+      <div className="tile">
+        <button
+          type="button"
+          onClick={onReplayTour}
+          className="w-full p-4 flex items-center gap-3 text-left text-sm font-semibold"
+        >
+          <CircleHelp size={18} className="text-violet" /> Replay screentips
+          <span className="ml-auto text-xs font-normal text-muted-foreground">
+            A 30-second tour of the app
+          </span>
+        </button>
       </div>
 
       <h2 className="eyebrow mt-6 mb-2">Data</h2>

@@ -1,7 +1,7 @@
 import type { Frame, Handedness, Move, ReportData } from "./types";
 import type { PoseDetector } from "./detector";
-import { ANALYSIS_FPS } from "./config";
-import { buildReport } from "./report";
+import { ANALYSIS_FPS, SHORT_CLIP_FPS, SHORT_CLIP_SECONDS } from "./config";
+import { buildReport, type KeyFrame } from "./report";
 import { captureSnapshot } from "./draw";
 
 /** Longer videos are trimmed to keep analysis responsive on phones. */
@@ -65,6 +65,56 @@ async function resolveDuration(video: HTMLVideoElement) {
   return Number.isFinite(video.duration) ? video.duration : 0;
 }
 
+/** Loads a clip into a detached, paused video element ready for seeking. */
+async function openVideo(source: Blob) {
+  const url = URL.createObjectURL(source);
+  const video = document.createElement("video");
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = "auto";
+  const close = () => {
+    video.removeAttribute("src");
+    video.load();
+    URL.revokeObjectURL(url);
+  };
+  try {
+    const loaded = once(video, "loadeddata", 10000);
+    video.src = url;
+    video.load();
+    await loaded;
+    if (!video.videoWidth || !video.videoHeight) throw new UnreadableVideoError();
+    // iOS Safari only paints frames after a play() call.
+    await video.play().catch(() => undefined);
+    video.pause();
+    const duration = await resolveDuration(video);
+    if (!duration) throw new UnreadableVideoError();
+    return { video, duration, close };
+  } catch (err) {
+    close();
+    throw err;
+  }
+}
+
+/** Seeks to each key frame and stores a snapshot with its analysis drawn on top. */
+async function fillSnapshots(
+  video: HTMLVideoElement,
+  duration: number,
+  frames: Frame[],
+  keyFrames: KeyFrame[],
+  report: ReportData,
+  { signal, onProgress }: { signal?: AbortSignal; onProgress?: (fraction: number) => void },
+) {
+  for (const [k, key] of keyFrames.entries()) {
+    if (signal?.aborted) throw new AbortedError();
+    const frame = frames[key.frameIndex];
+    if (!frame) continue;
+    await seek(video, Math.min(Math.max(0, frame.t / 1000), Math.max(0, duration - 0.01)));
+    const url = captureSnapshot(video, frame.lm, key.analysis);
+    if (url) key.assign(report, url);
+    onProgress?.((k + 1) / keyFrames.length);
+  }
+}
+
 export interface AnalyseVideoOptions {
   move: Move;
   handedness: Handedness;
@@ -78,32 +128,22 @@ export interface VideoAnalysis {
   aspect: number;
 }
 
+/** Sampling rate for a clip of this length: live rate for short clips. */
+export function samplingFps(durationSeconds: number) {
+  return durationSeconds <= SHORT_CLIP_SECONDS ? SHORT_CLIP_FPS : ANALYSIS_FPS;
+}
+
 /** Steps through a video file, detects the pose in each sampled frame and builds a report. */
 export async function analyseVideo(
   source: Blob,
   detector: PoseDetector,
   { move, handedness, onProgress, signal }: AnalyseVideoOptions,
 ): Promise<VideoAnalysis> {
-  const url = URL.createObjectURL(source);
-  const video = document.createElement("video");
-  video.muted = true;
-  video.playsInline = true;
-  video.preload = "auto";
-  video.crossOrigin = "anonymous";
+  const { video, duration: fullDuration, close } = await openVideo(source);
   try {
-    const loaded = once(video, "loadeddata", 10000);
-    video.src = url;
-    video.load();
-    await loaded;
-    if (!video.videoWidth || !video.videoHeight) throw new UnreadableVideoError();
-    // iOS Safari only paints frames after a play() call.
-    await video.play().catch(() => undefined);
-    video.pause();
-
-    const duration = Math.min(await resolveDuration(video), MAX_ANALYSIS_SECONDS);
-    if (!duration) throw new UnreadableVideoError();
+    const duration = Math.min(fullDuration, MAX_ANALYSIS_SECONDS);
     const aspect = video.videoWidth / video.videoHeight;
-    const step = 1 / ANALYSIS_FPS;
+    const step = 1 / samplingFps(duration);
     const frames: Frame[] = [];
     const total = Math.max(1, Math.floor(duration / step));
     const base = performance.now();
@@ -120,20 +160,44 @@ export async function analyseVideo(
     }
 
     const { report, keyFrames } = buildReport(frames, move, handedness, aspect);
-    for (const [k, key] of keyFrames.entries()) {
-      if (signal?.aborted) throw new AbortedError();
-      const frame = frames[key.frameIndex];
-      if (!frame) continue;
-      await seek(video, frame.t / 1000);
-      const url = captureSnapshot(video, frame.lm, key.analysis);
-      if (url) key.assign(report, url);
-      onProgress?.(0.9 + (0.1 * (k + 1)) / keyFrames.length);
-    }
+    await fillSnapshots(video, duration, frames, keyFrames, report, {
+      ...(signal ? { signal } : {}),
+      onProgress: (f) => onProgress?.(0.9 + 0.1 * f),
+    });
     onProgress?.(1);
     return { report, frames, aspect };
   } finally {
-    video.removeAttribute("src");
-    video.load();
-    URL.revokeObjectURL(url);
+    close();
   }
+}
+
+/**
+ * Builds a clip report from poses already detected while it was recorded (the live
+ * coach's frames, timed from the start of the clip), so the report matches what the
+ * player saw live. The clip itself is only opened to grab snapshots; if that fails the
+ * report is still returned, without images.
+ */
+export async function reportFromFrames(
+  source: Blob,
+  frames: Frame[],
+  aspect: number,
+  { move, handedness, onProgress, signal }: AnalyseVideoOptions,
+): Promise<VideoAnalysis> {
+  const { report, keyFrames } = buildReport(frames, move, handedness, aspect);
+  try {
+    const { video, duration, close } = await openVideo(source);
+    try {
+      await fillSnapshots(video, duration, frames, keyFrames, report, {
+        ...(signal ? { signal } : {}),
+        ...(onProgress ? { onProgress } : {}),
+      });
+    } finally {
+      close();
+    }
+  } catch (err) {
+    if (err instanceof AbortedError) throw err;
+    // Snapshots are a nice-to-have; keep the analysis.
+  }
+  onProgress?.(1);
+  return { report, frames, aspect };
 }
