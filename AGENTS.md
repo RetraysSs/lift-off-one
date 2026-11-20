@@ -1,4 +1,5 @@
 <!-- LOVABLE:BEGIN -->
+
 > [!IMPORTANT]
 > This project is connected to [Lovable](https://lovable.dev). Avoid rewriting
 > published git history — force pushing, or rebasing/amending/squashing commits
@@ -27,4 +28,11 @@ use the editor.
   `LOVABLE_API_KEY`. When Lovable does not provide one, users can bring their
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
+
 <!-- LOVABLE:END -->
+
+## Application structure
+
+- Keep the single page in `src/routes/index.tsx` using TanStack Router rather than `src/pages/Index.tsx`; this preserves the template's routing and SSR bootstrap.
+- Keep engine contracts, mock fixtures, and replaceable hooks separate from UI components so future analysis can replace stubs without rewriting the screen.
+- Define visual styling and status colors in `src/styles.css`; `engine/config.ts` is the requested engine-facing status-color contract.

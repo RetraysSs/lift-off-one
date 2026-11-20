@@ -8,6 +8,10 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
+        ready: "border-transparent bg-accent text-primary gap-1.5 font-medium",
+        score:
+          "border-transparent bg-accent text-foreground px-3 py-2 font-display text-4xl font-semibold",
+        preview: "border-stage-line bg-stage-surface text-stage-muted gap-1.5 font-medium",
         default: "border-transparent bg-primary text-primary-foreground shadow hover:bg-primary/80",
         secondary:
           "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80",
