@@ -1,5 +1,5 @@
 import type { Analysis, Frame, Handedness, Move, ReportData, SwingReport } from "./types";
-import { analyseClearContact, analyseClearPrep, analyseStance, combineAnalyses } from "./analysis";
+import { analyseStance, analyseSwing, combineAnalyses } from "./analysis";
 import { WHOLE_BODY, visible } from "./pose";
 import { diagnoseSwings, findSwings } from "./swings";
 
@@ -36,14 +36,20 @@ function setSnapshot(
   if (swing) swing[key] = url;
 }
 
-/** Picks the most representative stance frame: the median-scoring whole-body frame. */
+/**
+ * Picks the frame that represents how the player stands once set: the 75th-percentile
+ * score among whole-body frames. A clip usually includes stepping in and standing up,
+ * and the median frame can land on one of those moments.
+ */
+const SETTLED_QUANTILE = 0.75;
+
 function pickStanceFrame(frames: Frame[], handedness: Handedness, aspect: number) {
   const scored = frames
     .map((f, i) => ({ i, f }))
     .filter(({ f }) => visible(f.lm, ...WHOLE_BODY))
     .map(({ i, f }) => ({ i, analysis: analyseStance(f.lm, handedness, aspect) }))
     .sort((a, b) => (a.analysis.score ?? -1) - (b.analysis.score ?? -1) || a.i - b.i);
-  const median = scored[Math.floor((scored.length - 1) / 2)];
+  const median = scored[Math.floor((scored.length - 1) * SETTLED_QUANTILE)];
   if (median) return median;
   let best = 0;
   frames.forEach((f, i) => {
@@ -86,8 +92,7 @@ export function buildReport(
   const reports: SwingReport[] = swings.map((s, n) => {
     const prepFrame = frameAt(frames, s.prepIndex);
     const contactFrame = frameAt(frames, s.contactIndex);
-    const prep = analyseClearPrep(prepFrame.lm, arm, aspect);
-    const contact = analyseClearContact(contactFrame.lm, arm, aspect);
+    const { prep, contact, stroke } = analyseSwing(frames, s, arm, aspect);
     keyFrames.push(
       {
         frameIndex: s.prepIndex,
@@ -107,6 +112,7 @@ export function buildReport(
       prep,
       contact,
       score: combineAnalyses(prep, contact).score,
+      stroke,
     };
   });
   const scored = reports.map((r) => r.score).filter((s): s is number => s !== null);

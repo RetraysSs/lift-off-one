@@ -3,12 +3,7 @@ import type { Analysis, Frame, Handedness, Move, SwingReport } from "@/engine/ty
 import type { PoseDetector } from "@/engine/detector";
 import type { StageHandle } from "@/components/Stage";
 import { syncCanvas } from "@/components/Stage";
-import {
-  analyseClearContact,
-  analyseClearPrep,
-  analyseFrame,
-  combineAnalyses,
-} from "@/engine/analysis";
+import { analyseSwing, analyseFrame, combineAnalyses } from "@/engine/analysis";
 import { drawPose } from "@/engine/draw";
 import { wholeBodyVisible } from "@/engine/pose";
 import { findSwings, SWING } from "@/engine/swings";
@@ -161,8 +156,11 @@ export function useLiveCoach({
             )
               continue;
             lastContact = contact.t;
-            const prep = analyseClearPrep(prepFrame.lm, found.handedness, aspect);
-            const hit = analyseClearContact(contact.lm, found.handedness, aspect);
+            const {
+              prep,
+              contact: hit,
+              stroke,
+            } = analyseSwing(buffer, s, found.handedness, aspect);
             const prepSnapshot = ring.current?.snapshot(prepFrame.t, prepFrame.lm, prep, mirrored);
             const contactSnapshot = ring.current?.snapshot(contact.t, contact.lm, hit, mirrored);
             swings.current = [
@@ -174,6 +172,7 @@ export function useLiveCoach({
                 prep,
                 contact: hit,
                 score: combineAnalyses(prep, hit).score,
+                stroke,
                 ...(prepSnapshot ? { prepSnapshot } : {}),
                 ...(contactSnapshot ? { contactSnapshot } : {}),
               },

@@ -54,7 +54,7 @@ export function Report({ report }: { report: ReportData }) {
               <p className="font-semibold">No swing detected</p>
               <p className="mt-1">
                 {report.notice ??
-                  "Stand side-on with your whole body in frame and swing your racket arm fully above your head."}
+                  "Put your phone where the net would be, facing you, with your whole body in frame, and swing your racket arm fully above your head."}
               </p>
             </div>
           </div>
@@ -67,6 +67,11 @@ export function Report({ report }: { report: ReportData }) {
                 <div className="flex justify-between items-center mb-3">
                   <h3 className="font-semibold text-sm">
                     Swing {swing.index}
+                    {swing.stroke && (
+                      <span className="ml-2 rounded-full bg-accent text-accent-foreground px-2 py-0.5 text-[11px] font-semibold">
+                        {swing.stroke === "backhand" ? "Backhand" : "Forehand"}
+                      </span>
+                    )}
                     <span className="text-muted-foreground font-normal ml-2 text-xs">
                       at {seconds(swing.contactTimeMs)}
                     </span>

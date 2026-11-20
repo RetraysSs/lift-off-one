@@ -492,8 +492,8 @@ export function TrainScreen({
               </div>
               <p className="font-semibold">Analyse a video</p>
               <p className="text-sm text-stage-muted mt-1">
-                Film yourself {move === "clear" ? "side-on" : "facing the camera"}, whole body in
-                frame. MP4, MOV or WebM.
+                Film {move === "clear" ? "from where the net would be" : "facing the camera"}, whole
+                body in frame. MP4, MOV or WebM.
               </p>
             </div>
           )}
@@ -649,7 +649,7 @@ export function TrainScreen({
                 {move === "clear" && lastSwing && (
                   <SwingVerdict
                     analysis={lastVerdict}
-                    title={`Swing ${lastSwing.index}`}
+                    title={`Swing ${lastSwing.index}${lastSwing.stroke ? ` · ${lastSwing.stroke === "backhand" ? "Backhand" : "Forehand"}` : ""}`}
                     {...(lastSwing.contactSnapshot ? { snapshot: lastSwing.contactSnapshot } : {})}
                   />
                 )}
@@ -659,7 +659,7 @@ export function TrainScreen({
                 <li>Use a steady camera at hip height, 2–3 m away.</li>
                 <li>
                   {move === "clear"
-                    ? "Stand side-on so the camera sees your hitting arm."
+                    ? "Film from where the net would be, facing the player."
                     : "Face the camera square-on."}
                 </li>
                 <li>

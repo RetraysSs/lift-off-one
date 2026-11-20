@@ -53,7 +53,7 @@ export const TUTORIALS: Tutorial[] = [
     id: "fh-clear",
     title: "Forehand clear",
     move: "clear",
-    camera: "Stand side-on to the camera.",
+    camera: "Phone where the net would be, facing you.",
     good: clip("fh-clear-good", [
       "Turn side-on with your racket shoulder back.",
       "Point your free arm up at the shuttle.",
@@ -76,7 +76,7 @@ export const TUTORIALS: Tutorial[] = [
     id: "bh-clear",
     title: "Backhand clear",
     move: "clear",
-    camera: "Back to the net, side-on to the camera.",
+    camera: "Phone where the net would be: it sees your back.",
     good: clip("bh-clear-good", [
       "Turn your back to the net.",
       "Lead with the elbow, racket arm rising.",

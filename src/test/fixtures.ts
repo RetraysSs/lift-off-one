@@ -27,8 +27,9 @@ export function facingPose({
     12: [0.42, 0.3],
     13: [0.62, 0.42],
     14: [0.38, 0.42],
-    15: [0.63, 0.5],
-    16: racketUp ? [0.37, 0.36] : [0.37, 0.5],
+    // Free (left) hand hangs below the hip; the racket (right) hand is up in front.
+    15: [0.63, 0.75],
+    16: racketUp ? [0.37, 0.36] : [0.37, 0.75],
     23: [0.55, 0.55],
     24: [0.45, 0.55],
     25: lKnee,
@@ -43,7 +44,8 @@ export function facingPose({
 }
 
 /** Side-on player (aspect 1) with the right (racket) wrist at height `wristY`. */
-export function sidePose(wristY: number, { freeArmUp = true, elbowY = 0.28 } = {}) {
+// Default elbow sits 0.32 torso lengths above the shoulder: a good, high preparation.
+export function sidePose(wristY: number, { freeArmUp = true, elbowY = 0.22 } = {}) {
   return pose({
     0: [0.5, 0.15],
     11: [0.52, 0.3],

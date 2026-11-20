@@ -28,10 +28,10 @@ export function SetupGuide({ visible, move, warning, onDismiss }: SetupGuideProp
       <p className="mt-2 text-sm leading-relaxed text-stage-muted">
         Prop your phone up 2–3 m away with your whole body in frame.{" "}
         {move === "clear"
-          ? "Stand side-on to the camera for the overhead clear."
+          ? "For the overhead clear, put your phone where the net would be, facing you."
           : move === "stance"
             ? "Face the camera for the ready stance."
-            : "Face the camera for the ready stance, stand side-on for the overhead clear."}
+            : "Face the camera for the ready stance; for the clear, put your phone where the net would be."}
       </p>
       {warning && (
         <p className="mt-3 text-sm flex items-center gap-2 text-warning-soft">

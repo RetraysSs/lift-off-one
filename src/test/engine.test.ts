@@ -87,7 +87,8 @@ describe("overhead clear", () => {
   });
 
   it("checks extension and height at contact", () => {
-    const bent = analyseClearContact(sidePose(0.02), "right", 1);
+    // Elbow just above the shoulder with the wrist far overhead: arm bent (~125°).
+    const bent = analyseClearContact(sidePose(0.02, { elbowY: 0.28 }), "right", 1);
     expect(byId(bent, "contact_high").status).toBe("pass");
     expect(byId(bent, "full_extension").status).toBe("fail");
     const straight = analyseClearContact(

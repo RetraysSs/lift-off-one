@@ -667,11 +667,21 @@
 .snapshot {
   background: var(--stage);
   color: var(--stage-muted);
-  aspect-ratio: 16/9;
+  /* Portrait-friendly: phone clips are usually 9:16. The image fills the box (contain). */
+  aspect-ratio: 3/4;
+  max-height: 420px;
+  position: relative;
   display: grid;
   place-items: center;
   border-radius: 14px;
   overflow: hidden;
+}
+.snapshot img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 .score-track {
   height: 6px;

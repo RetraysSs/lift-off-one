@@ -76,6 +76,24 @@ a second router or a `src/pages` directory.
 3. **Upload**: choose/drop a video (first 90 s analysed). The clip then plays back in the stage
    with the analysed skeleton overlaid.
 
+## Calibration
+
+Check thresholds (`THRESHOLDS` in `engine/config.ts`) are calibrated on real poses from the
+coach's good/bad reference clips, stored in `src/test/fixtures/reference-poses.json` (17
+landmarks at 30 fps). `src/test/calibration.test.ts` pins the outcome: good forehand ≥ 80 vs
+bad ≤ 40, good backhand ≥ 80, good stance above bad, every rep found, and no swing reported
+for the two clips whose racket never rises above the head. Change a threshold, run that test.
+
+Swing checks judge windows, not single frames: preparation over the second before contact
+(elbow over the last 0.6 s), contact at its best within ±150 ms. Backhands are recognised
+by the player's back facing the camera and skip the free-arm check. All clear checks assume
+the phone stands **where the net would be, facing the player**, as in the reference clips;
+every setup hint in the app says so. Arm extension is the weakest signal from a front-on
+camera (foreshortening), so it is the most lenient check.
+
+To re-export poses after adding a clip: run the detector over every frame at 30 fps (as
+`engine/video.ts` does) and keep x, y and visibility for the landmarks in the fixture.
+
 ## Development
 
 `bun install`, `bun run dev`, `bunx vitest run`, `bun run build`. Engine tests use synthetic

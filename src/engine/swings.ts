@@ -237,7 +237,7 @@ export function diagnoseSwings(
     return {
       reason: "not-tracked",
       message:
-        "Your racket arm was out of sight for most of the clip. Stand side-on, 2–3 m away, with your whole body and raised racket in frame.",
+        "Your racket arm was out of sight for most of the clip. Put your phone 2–3 m away where the net would be, with your whole body and raised racket in frame.",
       trackedShare,
       maxHeight,
     };

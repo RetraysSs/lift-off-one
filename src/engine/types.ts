@@ -42,6 +42,8 @@ export interface SwingReport {
   prep: Analysis;
   contact: Analysis;
   score: number | null;
+  /** Forehand or backhand clear (optional for sessions saved before strokes were detected). */
+  stroke?: "forehand" | "backhand";
 }
 export interface ReportData {
   move: Move;

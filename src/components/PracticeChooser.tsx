@@ -14,7 +14,7 @@ const OPTIONS: { move: Move; title: string; body: string; camera: string }[] = [
     move: "clear",
     title: "Overhead clear",
     body: "Swing for real; each swing is detected and scored.",
-    camera: "Stand side-on",
+    camera: "Phone where the net would be",
   },
 ];
 

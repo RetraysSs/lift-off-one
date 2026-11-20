@@ -8,7 +8,7 @@ export function measuredValue(check: CheckResult) {
       : check.status === "pass"
         ? "On target"
         : "Needs adjustment";
-  if (check.id === "feet_apart") return `${check.value}×`;
+  if (check.target.includes("×")) return `${check.value}×`;
   return `${check.value}${check.target.includes("°") ? "°" : ""}`;
 }
 
