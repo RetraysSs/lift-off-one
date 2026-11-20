@@ -1,0 +1,13 @@
+{
+  "name": "Lift Off — Badminton form coach",
+  "short_name": "Lift Off",
+  "description": "Live posture and swing coaching for badminton.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f8faf0",
+  "theme_color": "#e3f5a6",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

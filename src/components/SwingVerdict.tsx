@@ -1,10 +1,10 @@
 import { Image as ImageIcon } from "lucide-react";
 import type { Analysis } from "@/engine/types";
-import { Card } from "@/components/ui/card";
 import { CheckList } from "@/components/FeedbackPanel";
+
 export function Snapshot({ src, label }: { src?: string; label: string }) {
   return (
-    <div>
+    <figure>
       <div className="snapshot">
         {src ? (
           <img src={src} alt={label} className="h-full w-full object-contain" />
@@ -15,24 +15,30 @@ export function Snapshot({ src, label }: { src?: string; label: string }) {
           </div>
         )}
       </div>
-    </div>
+      {src && <figcaption className="text-[11px] text-muted-foreground mt-1.5">{label}</figcaption>}
+    </figure>
   );
 }
+
 export function SwingVerdict({
   snapshot,
   analysis,
+  title = "Last swing",
 }: {
   snapshot?: string;
   analysis: Analysis | null;
+  title?: string;
 }) {
   return (
-    <Card className="mt-6 p-5">
-      <div className="flex justify-between items-center mb-4">
-        <h3 className="text-sm font-semibold">Contact moment</h3>
-        <span className="text-xs text-muted-foreground">Swing verdict</span>
+    <div className="tile p-4 mt-5 fade-in">
+      <div className="flex justify-between items-center mb-3">
+        <h3 className="text-sm font-semibold">{title}</h3>
+        <span className="display text-sm font-semibold text-violet">
+          {analysis?.score ?? "–"} / 100
+        </span>
       </div>
-      <Snapshot {...(snapshot ? { src: snapshot } : {})} label="Contact snapshot" />
+      <Snapshot {...(snapshot ? { src: snapshot } : {})} label="Contact moment" />
       {analysis && <CheckList analysis={analysis} />}
-    </Card>
+    </div>
   );
 }

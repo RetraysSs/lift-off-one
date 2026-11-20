@@ -1,6 +1,8 @@
-# Lift Off One
+# Lift Off
 
-Implement exactly the screenshot and nothing else
+A mobile-first badminton form coach. Live pose tracking scores your ready stance and overhead
+clear, detects swings, and tracks your progress, all on your device. See
+[BUILD_INSTRUCTIONS.md](BUILD_INSTRUCTIONS.md) for how it works.
 
 This project was built with [Lovable](https://lovable.dev).
 
