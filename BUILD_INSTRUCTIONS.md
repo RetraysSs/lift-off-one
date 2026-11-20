@@ -29,9 +29,11 @@ a second router or a `src/pages` directory.
     (side-on, free arm, elbow high, extension, contact height); `scoreChecks` = % of measured
     checks passing. Unseen joints produce `skip`, never `fail`.
   - `swings.ts` overhead-swing detection from racket-wrist height (peak = contact, lowest point in
-    the preceding window = preparation).
+    the preceding window = preparation). Scaled by whichever torso side is visible and
+    tolerant of a motion-blurred wrist, because side-on the far shoulder/hip are hidden.
   - `report.ts` builds `ReportData` from a frame sequence; `live.ts` summarises a live session.
-  - `video.ts` seeks through a file at `ANALYSIS_FPS`, runs detection, then captures snapshots.
+  - `video.ts` seeks through a file (30 fps for clips up to 30 s, otherwise `ANALYSIS_FPS`), runs
+    detection, then captures snapshots.
     Handles MediaRecorder WebM files that report `Infinity` duration.
   - `detector.ts` MediaPipe wrapper (GPU, falls back to CPU) with monotonic timestamps.
   - `draw.ts` canvas skeleton coloured by check status, using `COLORS` from `config.ts`.
@@ -50,8 +52,11 @@ a second router or a `src/pages` directory.
 
 1. **Live**: Start camera → skeleton + live checks, score pill, in-form timer (stance) or swing
    count (clear). Pause stops analysis; the square button ends the session and saves a report.
-2. **Record**: the round button records `settings.recordSeconds` after a countdown, then the clip
-   is analysed like an upload and saved.
+2. **Record**: the round button records `settings.recordSeconds` after a countdown. The report
+   is built from the poses the live coach detected during the recording (`startCapture` /
+   `stopCapture` in `useLiveCoach`, `reportFromFrames` in `engine/video.ts`), so it matches the
+   swings shown live; the clip is only re-read for snapshots. If live coaching captured too few
+   frames (e.g. paused) the clip is re-detected like an upload.
 3. **Upload**: choose/drop a video (first 90 s analysed). The clip then plays back in the stage
    with the analysed skeleton overlaid.
 

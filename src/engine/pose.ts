@@ -123,3 +123,16 @@ export const WHOLE_BODY = [
 export function wholeBodyVisible(lm: Landmark[] | null | undefined) {
   return !!lm && lm.length >= 33 && visible(lm, ...WHOLE_BODY);
 }
+
+/**
+ * Shoulder-to-hip length from whichever body side is visible (longest if both are).
+ * Side-on, the far shoulder and hip hide behind the body, so this is the robust scale
+ * for side-on moves where `torsoLength` would need all four joints.
+ */
+export function torsoScale(lm: Landmark[], aspect: number): number | null {
+  const lengths = [LEFT, RIGHT]
+    .filter((s) => visible(lm, s.shoulder, s.hip))
+    .map((s) => dist(pt(lm, s.shoulder, aspect), pt(lm, s.hip, aspect)));
+  const length = lengths.length ? Math.max(...lengths) : 0;
+  return length > 0 ? length : null;
+}

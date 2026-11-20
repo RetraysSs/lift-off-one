@@ -13,7 +13,7 @@ import { buildReport, NoPlayerError } from "@/engine/report";
 import { buildLiveReport } from "@/engine/live";
 import { jointColors } from "@/engine/draw";
 import { COLORS } from "@/engine/config";
-import { facingPose, pose, sidePose, swingFrames } from "./fixtures";
+import { facingPose, occludedSwingFrames, pose, sidePose, swingFrames } from "./fixtures";
 
 const byId = (a: Analysis, id: string): CheckResult => a.checks.find((c) => c.id === id)!;
 
@@ -101,6 +101,24 @@ describe("swing detection", () => {
       const contact = frames[s.contactIndex]!;
       expect(Math.abs(contact.t - [1000, 2600][i]!)).toBeLessThan(70);
       expect(s.prepIndex).toBeLessThan(s.contactIndex);
+    }
+  });
+
+  it("still finds swings when side-on hides the far shoulder and hip", () => {
+    // Far-side joints at 0.3 visibility and a blurred wrist at 0.4: typical of a
+    // compressed side-on recording. Live and recorded analysis must agree here.
+    for (const fps of [30, 15]) {
+      const swings = detectSwings(occludedSwingFrames([1000, 2600], 3500, fps), "right", 1);
+      expect(swings).toHaveLength(2);
+    }
+  });
+
+  it("finds the same swings at the live and the file sampling rate", () => {
+    for (const fps of [30, 15]) {
+      const frames = occludedSwingFrames([800, 2100], 3000, fps);
+      const contacts = detectSwings(frames, "right", 1).map((s) => frames[s.contactIndex]!.t);
+      expect(contacts).toHaveLength(2);
+      contacts.forEach((t, i) => expect(Math.abs(t - [800, 2100][i]!)).toBeLessThan(70));
     }
   });
 

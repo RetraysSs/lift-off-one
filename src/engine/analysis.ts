@@ -1,6 +1,18 @@
 import type { Analysis, CheckResult, Handedness, Landmark, Move } from "./types";
 import { THRESHOLDS as T } from "./config";
-import { LM, angle, get, dist, freeSide, mid, pt, racketSide, torsoLength, visible } from "./pose";
+import {
+  LM,
+  angle,
+  get,
+  dist,
+  freeSide,
+  mid,
+  pt,
+  racketSide,
+  torsoLength,
+  torsoScale,
+  visible,
+} from "./pose";
 
 const round = (n: number, digits = 0) => {
   const f = 10 ** digits;
@@ -194,8 +206,9 @@ function freeArmUp(lm: Landmark[], handedness: Handedness): CheckResult {
 function elbowHigh(lm: Landmark[], handedness: Handedness, aspect: number): CheckResult {
   const side = racketSide(handedness);
   const base = { id: "elbow_high", name: "Elbow high", target: "elbow at or above shoulder" };
-  if (!visible(lm, side.elbow, side.shoulder, LM.leftHip, LM.rightHip)) return skip(base);
-  const tolerance = T.elbowTolerance * torsoLength(lm, aspect);
+  const scale = torsoScale(lm, aspect);
+  if (!visible(lm, side.elbow, side.shoulder) || scale === null) return skip(base);
+  const tolerance = T.elbowTolerance * scale;
   const pass = get(lm, side.elbow).y <= get(lm, side.shoulder).y + tolerance;
   return {
     ...base,

@@ -28,5 +28,11 @@ export const THRESHOLDS = {
   elbowTolerance: 0.08,
 } as const;
 
-/** Frames per second sampled when analysing a video file. */
+/** Frames per second sampled when analysing a long video file. */
 export const ANALYSIS_FPS = 15;
+/**
+ * Clips up to this length are sampled at `SHORT_CLIP_FPS`, the same rate the live coach sees,
+ * so a fast overhead contact is not skipped between samples.
+ */
+export const SHORT_CLIP_SECONDS = 30;
+export const SHORT_CLIP_FPS = 30;

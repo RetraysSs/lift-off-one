@@ -23,7 +23,12 @@ import { usePoseLandmarker } from "@/hooks/usePoseLandmarker";
 import { useCamera } from "@/hooks/useCamera";
 import { useRecorder } from "@/hooks/useRecorder";
 import { useLiveCoach } from "@/hooks/useLiveCoach";
-import { analyseVideo, MAX_ANALYSIS_SECONDS, UnreadableVideoError } from "@/engine/video";
+import {
+  analyseVideo,
+  MAX_ANALYSIS_SECONDS,
+  reportFromFrames,
+  UnreadableVideoError,
+} from "@/engine/video";
 import { NoPlayerError } from "@/engine/report";
 import { analyseFrame, combineAnalyses } from "@/engine/analysis";
 import { buildLiveReport } from "@/engine/live";
@@ -45,6 +50,9 @@ export interface TrainScreenProps {
   onComplete: (report: ReportData, source: SessionSource, durationMs: number) => void;
   onExample: (move: Move) => void;
 }
+
+/** Fewer live frames than this (about a third of a second) means re-detect from the clip. */
+const MIN_CAPTURED_FRAMES = 10;
 
 const isVideoFile = (file: File) =>
   file.type.startsWith("video/") || /\.(mp4|mov|m4v|webm|mkv|avi|3gp)$/i.test(file.name);
@@ -70,6 +78,8 @@ export function TrainScreen({
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [dragging, setDragging] = useState(false);
+  // Swing count at the start of the current recording; null when not recording.
+  const [clipBase, setClipBase] = useState<number | null>(null);
 
   const stageRef = useRef<StageHandle>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -173,7 +183,12 @@ export function TrainScreen({
   }, [playback, mode, handedness]);
 
   const runAnalysis = useCallback(
-    async (blob: Blob, source: SessionSource, durationMs: number | null) => {
+    async (
+      blob: Blob,
+      source: SessionSource,
+      durationMs: number | null,
+      captured: { frames: Frame[]; aspect: number } | null = null,
+    ) => {
       if (!model.detector) {
         setError("The pose model is still loading. Try again in a moment.");
         return;
@@ -185,12 +200,14 @@ export function TrainScreen({
       setProgress(0);
       setError(null);
       try {
-        const result = await analyseVideo(blob, model.detector, {
-          move,
-          handedness,
-          onProgress: setProgress,
-          signal: controller.signal,
-        });
+        const options = { move, handedness, onProgress: setProgress, signal: controller.signal };
+        // A recorded clip reuses the poses the live coach detected while it was recording,
+        // so its report matches the swings shown live. Re-detect only if live coaching
+        // wasn't running (e.g. paused) and so captured too little.
+        const result =
+          captured && captured.frames.length >= MIN_CAPTURED_FRAMES
+            ? await reportFromFrames(blob, captured.frames, captured.aspect, options)
+            : await analyseVideo(blob, model.detector, options);
         if (source === "upload") setPlayback({ frames: result.frames, move });
         const lastT = result.frames[result.frames.length - 1]?.t ?? 0;
         onComplete(result.report, source, durationMs ?? lastT);
@@ -254,8 +271,17 @@ export function TrainScreen({
   };
 
   const record = async () => {
-    const blob = await recorder.record(camera.stream(), settings.recordSeconds * 1000);
-    if (blob) await runAnalysis(blob, "record", settings.recordSeconds * 1000);
+    // While recording, show only swings that belong to the clip.
+    setClipBase(coach.collect().swings.length);
+    const blob = await recorder.record(camera.stream(), settings.recordSeconds * 1000, {
+      onStart: () => {
+        coach.startCapture();
+        setClipBase(coach.collect().swings.length);
+      },
+    });
+    const captured = coach.stopCapture();
+    setClipBase(null);
+    if (blob) await runAnalysis(blob, "record", settings.recordSeconds * 1000, captured);
   };
 
   const changeMove = (next: Move) => {
@@ -266,7 +292,8 @@ export function TrainScreen({
 
   const live = mode === "live";
   const busy = analysing || recorder.recording;
-  const lastSwing = coach.swings[coach.swings.length - 1];
+  const shownSwings = clipBase === null ? coach.swings : coach.swings.slice(clipBase);
+  const lastSwing = shownSwings[shownSwings.length - 1];
   const lastVerdict = lastSwing ? combineAnalyses(lastSwing.prep, lastSwing.contact) : null;
   const liveScore =
     move === "clear"
@@ -514,7 +541,7 @@ export function TrainScreen({
                   ? "Clear"
                   : "Stance"
                 : move === "clear"
-                  ? coach.swings.length
+                  ? shownSwings.length
                   : `${passing}/${measured.length || 4}`}
             </p>
           </div>

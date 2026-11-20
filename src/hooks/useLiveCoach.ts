@@ -63,6 +63,8 @@ export function useLiveCoach({
   const inForm = useRef({ since: -1, best: 0 });
   const ring = useRef<FrameRing | null>(null);
   const sessionStart = useRef<number | null>(null);
+  // Frames captured for a recorded clip, timed from the moment recording started.
+  const capture = useRef<{ t0: number; frames: Frame[]; aspect: number } | null>(null);
 
   const reset = useCallback(() => {
     samples.current = [];
@@ -120,6 +122,11 @@ export function useLiveCoach({
       } else f.since = -1;
 
       if (lm) {
+        const clip = capture.current;
+        if (clip) {
+          clip.frames.push({ t: now - clip.t0, lm });
+          clip.aspect = aspect;
+        }
         buffer.push({ t, lm });
         while (buffer.length && (buffer[0]?.t ?? t) < t - BUFFER_MS) buffer.shift();
       }
@@ -199,5 +206,17 @@ export function useLiveCoach({
     [],
   );
 
-  return { ...state, reset, collect };
+  /** Start keeping every detected frame, timed from now (call when recording starts). */
+  const startCapture = useCallback(() => {
+    capture.current = { t0: performance.now(), frames: [], aspect: 16 / 9 };
+  }, []);
+
+  /** Stop capturing and return the frames gathered since `startCapture`. */
+  const stopCapture = useCallback(() => {
+    const clip = capture.current;
+    capture.current = null;
+    return clip ? { frames: clip.frames, aspect: clip.aspect } : null;
+  }, []);
+
+  return { ...state, reset, collect, startCapture, stopCapture };
 }

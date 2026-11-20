@@ -1,5 +1,5 @@
 import type { Frame, Handedness, Swing } from "./types";
-import { LM, get, racketSide, torsoLength, visible } from "./pose";
+import { get, racketSide, torsoScale, visible } from "./pose";
 
 export const SWING = {
   /** Contact must be a peak of wrist height within ± this window. */
@@ -12,27 +12,24 @@ export const SWING = {
   prepWindowMs: [1200, 120] as [number, number],
   /** Two contacts closer than this are one swing. */
   minGapMs: 700,
+  /**
+   * The racket wrist moves fast at contact, so it is often motion-blurred and scored
+   * below the general visibility floor. Accept it at this lower confidence.
+   */
+  minWristVisibility: 0.3,
+  /** Heights are averaged with neighbours this close in time (ms), whatever the frame rate. */
+  smoothMs: 45,
 };
 
 /** Racket-wrist height above the racket shoulder, in torso lengths (null if unseen). */
 export function wristHeight(frame: Frame, handedness: Handedness, aspect: number): number | null {
   const side = racketSide(handedness);
   const lm = frame.lm;
-  if (
-    !visible(
-      lm,
-      side.wrist,
-      side.shoulder,
-      LM.leftHip,
-      LM.rightHip,
-      LM.leftShoulder,
-      LM.rightShoulder,
-    )
-  )
-    return null;
-  const torso = torsoLength(lm, aspect);
-  if (torso === 0) return null;
-  return (get(lm, side.shoulder).y - get(lm, side.wrist).y) / torso;
+  if (!visible(lm, side.shoulder)) return null;
+  if (get(lm, side.wrist).visibility < SWING.minWristVisibility) return null;
+  const scale = torsoScale(lm, aspect);
+  if (scale === null) return null;
+  return (get(lm, side.shoulder).y - get(lm, side.wrist).y) / scale;
 }
 
 /**
@@ -42,14 +39,23 @@ export function wristHeight(frame: Frame, handedness: Handedness, aspect: number
  */
 export function detectSwings(frames: Frame[], handedness: Handedness, aspect = 16 / 9): Swing[] {
   const raw = frames.map((f) => wristHeight(f, handedness, aspect));
-  // 3-point moving average over valid neighbours to suppress landmark jitter.
+  const t = (i: number) => frames[i]?.t ?? 0;
+  // Average with neighbours within `smoothMs` to suppress landmark jitter. Time-based, so
+  // live (~30 fps) and file analysis (sampled) smooth the same amount and agree.
   const smooth = raw.map((v, i) => {
     if (v === null) return null;
-    const window = [raw[i - 1], v, raw[i + 1]].filter((x): x is number => x != null);
-    return window.reduce((a, b) => a + b, 0) / window.length;
+    let sum = v;
+    let n = 1;
+    for (const j of [i - 1, i + 1]) {
+      const r = raw[j];
+      if (r != null && Math.abs(t(j) - t(i)) <= SWING.smoothMs) {
+        sum += r;
+        n++;
+      }
+    }
+    return sum / n;
   });
   const h = (i: number) => smooth[i] ?? null;
-  const t = (i: number) => frames[i]?.t ?? 0;
 
   const contacts: number[] = [];
   for (let i = 0; i < frames.length; i++) {

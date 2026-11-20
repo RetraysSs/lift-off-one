@@ -11,7 +11,8 @@ const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, 
 
 /**
  * 3–2–1 countdown, then records the stream for `durationMs`.
- * `record` resolves the clip, or null if cancelled or unsupported.
+ * `record` resolves the clip, or null if cancelled or unsupported. `onStart` fires when
+ * the recorder actually starts, i.e. at time 0 of the returned clip.
  */
 export function useRecorder() {
   const [recording, setRecording] = useState(false);
@@ -38,7 +39,11 @@ export function useRecorder() {
   }, []);
 
   const record = useCallback(
-    async (stream: MediaStream | null, durationMs = 5000): Promise<Blob | null> => {
+    async (
+      stream: MediaStream | null,
+      durationMs = 5000,
+      { onStart }: { onStart?: () => void } = {},
+    ): Promise<Blob | null> => {
       if (active.current) return null;
       setError(null);
       if (!stream || typeof MediaRecorder === "undefined") {
@@ -89,6 +94,8 @@ export function useRecorder() {
       const stopped = new Promise<void>((resolve) => (recorder.onstop = () => resolve()));
       const startedAt = performance.now();
       recorder.start(250);
+      // Lets callers line up their own per-frame data with the clip's timeline.
+      onStart?.();
       setRemainingMs(durationMs);
       const tick = setInterval(() => {
         if (mounted.current)

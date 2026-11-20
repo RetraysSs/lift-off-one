@@ -78,3 +78,23 @@ export function swingFrames(peaks: number[], durationMs: number): Frame[] {
   }
   return frames;
 }
+
+/**
+ * The same swings as `swingFrames`, as a side-on camera sees them: the far (free-side)
+ * shoulder and hip are hidden behind the body and the fast racket wrist is motion-blurred.
+ */
+export function occludedSwingFrames(peaks: number[], durationMs: number, fps = 30): Frame[] {
+  const frames: Frame[] = [];
+  for (let t = 0; t <= durationMs; t += 1000 / fps) {
+    let y = 0.36;
+    for (const p of peaks) {
+      if (t >= p - 400 && t <= p) y = Math.min(y, 0.36 - ((t - (p - 400)) / 400) * 0.34);
+      else if (t > p && t <= p + 300) y = Math.min(y, 0.02 + ((t - p) / 300) * 0.34);
+    }
+    const lm = sidePose(y).map((l, i) =>
+      i === 11 || i === 23 ? { ...l, visibility: 0.3 } : i === 16 ? { ...l, visibility: 0.4 } : l,
+    );
+    frames.push({ t, lm });
+  }
+  return frames;
+}

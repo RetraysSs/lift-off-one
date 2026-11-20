@@ -68,9 +68,10 @@ describe("recorder", () => {
     }
     vi.stubGlobal("MediaRecorder", FakeRecorder);
     const { result } = renderHook(() => useRecorder());
+    const onStart = vi.fn();
     let pending: Promise<Blob | null> | undefined;
     act(() => {
-      pending = result.current.record({} as MediaStream, 2000);
+      pending = result.current.record({} as MediaStream, 2000, { onStart });
     });
     expect(result.current.countdown).toBe(3);
     await act(() => vi.advanceTimersByTimeAsync(1000));
@@ -78,6 +79,8 @@ describe("recorder", () => {
     await act(() => vi.advanceTimersByTimeAsync(2000));
     expect(result.current.countdown).toBe(null);
     expect(result.current.recording).toBe(true);
+    // onStart marks time 0 of the clip, after the countdown, so live frames line up with it.
+    expect(onStart).toHaveBeenCalledTimes(1);
     await act(() => vi.advanceTimersByTimeAsync(2000));
     const blob = await pending;
     expect(blob?.type).toBe("video/webm");
