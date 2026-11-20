@@ -8,6 +8,8 @@ import { TutorialsScreen } from "@/components/screens/TutorialsScreen";
 import { PracticeChooser } from "@/components/PracticeChooser";
 import { GuideTour, type TourStep } from "@/components/GuideTour";
 import { TUTORIALS } from "@/lib/tutorials";
+import { Report } from "@/components/Report";
+import { mockReport, mockStanceAnalysis } from "@/mock/mockData";
 import { expandTrack } from "@/lib/poseFile";
 import { tutorialVerdict } from "@/lib/tutorialVerdict";
 
@@ -128,5 +130,47 @@ describe("tutorial skeleton analysis", () => {
       }
     }
     expect(verdictFor(TUTORIALS[2]!.good, "clear").label).toMatch(/^Backhand/);
+  });
+});
+
+describe("overall video report", () => {
+  it("shows the overall score, both parts, and flags low swings", () => {
+    const swing = {
+      ...mockReport.swings[0]!,
+      index: 1,
+      low: true,
+      stroke: "forehand" as const,
+    };
+    render(
+      <Report
+        report={{
+          move: "clear",
+          scope: "full",
+          score: 50,
+          swings: [swing],
+          stance: mockStanceAnalysis,
+        }}
+      />,
+    );
+    expect(screen.getByText("Overall score")).toBeInTheDocument();
+    expect(screen.getByText("Ready stance", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText("1 swing, 1 low")).toBeInTheDocument();
+    expect(screen.getByText("Below head height")).toBeInTheDocument();
+    expect(screen.getByText("Overhead clears")).toBeInTheDocument();
+  });
+
+  it("says when a video had no clears", () => {
+    render(
+      <Report
+        report={{
+          move: "stance",
+          scope: "full",
+          score: 67,
+          swings: [],
+          stance: mockStanceAnalysis,
+        }}
+      />,
+    );
+    expect(screen.getByText("No overhead clears found")).toBeInTheDocument();
   });
 });

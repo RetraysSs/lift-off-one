@@ -51,7 +51,7 @@ export interface TrainScreenProps {
   onSettings: (patch: Partial<Settings>) => void;
   intent: TrainIntent;
   onComplete: (report: ReportData, source: SessionSource, durationMs: number) => void;
-  onExample: (move: Move) => void;
+  onExample: (move: Move | "full") => void;
   /** True while a live session fills the screen (the app hides its bottom nav). */
   onImmersiveChange?: (immersive: boolean) => void;
 }
@@ -118,7 +118,9 @@ export function TrainScreen({
   const [analysing, setAnalysing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [fileUrl, setFileUrl] = useState<string | null>(null);
-  const [playback, setPlayback] = useState<{ frames: Frame[]; move: Move } | null>(null);
+  // Analysed upload: its poses, plus swing contact times so playback can colour each
+  // moment by phase (clear checks around a swing, stance checks the rest of the time).
+  const [playback, setPlayback] = useState<{ frames: Frame[]; swingTimes: number[] } | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [dragging, setDragging] = useState(false);
@@ -234,7 +236,8 @@ export function TrainScreen({
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       if (!f || Math.abs(f.t - t) > 250) return ctx.clearRect(0, 0, canvas.width, canvas.height);
-      drawPose(ctx, f.lm, analyseFrame(playback.move, f.lm, handedness, aspect));
+      const nearSwing = playback.swingTimes.some((c) => t >= c - 1200 && t <= c + 700);
+      drawPose(ctx, f.lm, analyseFrame(nearSwing ? "clear" : "stance", f.lm, handedness, aspect));
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
@@ -258,7 +261,15 @@ export function TrainScreen({
       setProgress(0);
       setError(null);
       try {
-        const options = { move, handedness, onProgress: setProgress, signal: controller.signal };
+        // Uploads get the overall analysis (every clear and ready stance); a clip recorded
+        // in a live session is about the move being practised.
+        const options = {
+          move,
+          scope: source === "upload" ? ("full" as const) : ("move" as const),
+          handedness,
+          onProgress: setProgress,
+          signal: controller.signal,
+        };
         // A recorded clip reuses the poses the live coach detected while it was recording,
         // so its report matches the swings shown live. Re-detect only if live coaching
         // wasn't running (e.g. paused) and so captured too little.
@@ -266,7 +277,11 @@ export function TrainScreen({
           captured && captured.frames.length >= MIN_CAPTURED_FRAMES
             ? await reportFromFrames(blob, captured.frames, captured.aspect, options)
             : await analyseVideo(blob, model.detector, options);
-        if (source === "upload") setPlayback({ frames: result.frames, move });
+        if (source === "upload")
+          setPlayback({
+            frames: result.frames,
+            swingTimes: result.report.swings.map((s) => s.contactTimeMs),
+          });
         const lastT = result.frames[result.frames.length - 1]?.t ?? 0;
         onComplete(result.report, source, durationMs ?? lastT);
       } catch (err) {
@@ -427,10 +442,10 @@ export function TrainScreen({
         <div className="absolute inset-x-0 top-0 p-4 pt-[calc(16px+env(safe-area-inset-top,0px))] flex justify-between gap-3 pointer-events-none">
           <div className="pointer-events-auto min-w-0">
             <h1 className="stage-title text-[22px] font-semibold leading-tight">
-              {MOVE_LABEL[move]}
+              {live ? MOVE_LABEL[move] : "Video analysis"}
             </h1>
             <div className="flex flex-wrap gap-2 mt-3">
-              {(["stance", "clear"] as const).map((m) => (
+              {(live ? (["stance", "clear"] as const) : []).map((m) => (
                 <button
                   key={m}
                   type="button"
@@ -583,10 +598,10 @@ export function TrainScreen({
               <div className="mx-auto size-12 rounded-full bg-primary text-primary-foreground grid place-items-center mb-3">
                 <Video size={22} />
               </div>
-              <p className="font-semibold">Analyse a video</p>
+              <p className="font-semibold">Analyse a match or practice</p>
               <p className="text-sm text-stage-muted mt-1">
-                Film {move === "clear" ? "from where the net would be" : "facing the camera"}, whole
-                body in frame. MP4, MOV or WebM.
+                One report on your ready stance and every overhead clear. Whole body in frame,
+                filmed from where the net would be. MP4, MOV or WebM.
               </p>
             </div>
           )}
@@ -657,12 +672,12 @@ export function TrainScreen({
             </p>
           </div>
           <div className="text-right">
-            <p className="stat-label">{!live ? "Move" : move === "clear" ? "Swings" : "Checks"}</p>
+            <p className="stat-label">
+              {!live ? "Checks" : move === "clear" ? "Swings" : "Checks"}
+            </p>
             <p className="stat-value text-lg mt-1">
               {!live
-                ? move === "clear"
-                  ? "Clear"
-                  : "Stance"
+                ? "All"
                 : move === "clear"
                   ? shownSwings.length
                   : `${passing}/${measured.length || 4}`}
@@ -740,7 +755,7 @@ export function TrainScreen({
             <button
               type="button"
               className="h-12 px-4 rounded-full border border-border font-semibold text-sm flex items-center gap-2"
-              onClick={() => onExample(move)}
+              onClick={() => onExample("full")}
               disabled={analysing}
             >
               <Sparkles size={16} /> Example
@@ -772,11 +787,8 @@ export function TrainScreen({
             ) : (
               <ul className="text-sm text-muted-foreground space-y-2 list-disc pl-5">
                 <li>Use a steady camera at hip height, 2–3 m away.</li>
-                <li>
-                  {move === "clear"
-                    ? "Film from where the net would be, facing the player."
-                    : "Face the camera square-on."}
-                </li>
+                <li>Film from where the net would be, facing the player.</li>
+                <li>Clears and the ready stance you hold between shots are found automatically.</li>
                 <li>
                   The first {MAX_ANALYSIS_SECONDS} seconds are analysed. Your video never leaves
                   this device.

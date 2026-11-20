@@ -152,7 +152,7 @@ export function HomeScreen({
           <div>
             <p className="font-bold leading-tight">Analyse match or video</p>
             <p className="text-xs text-stage-muted mt-1 leading-snug">
-              Upload a clip for a full report
+              Stance and clears in one report
             </p>
           </div>
         </button>

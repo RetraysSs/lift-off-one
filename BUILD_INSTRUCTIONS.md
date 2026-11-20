@@ -83,8 +83,15 @@ a second router or a `src/pages` directory.
    `stopCapture` in `useLiveCoach`, `reportFromFrames` in `engine/video.ts`), so it matches the
    swings shown live; the clip is only re-read for snapshots. If live coaching captured too few
    frames (e.g. paused) the clip is re-detected like an upload.
-3. **Upload**: choose/drop a video (first 90 s analysed). The clip then plays back in the stage
-   with the analysed skeleton overlaid.
+3. **Upload (overall analysis)**: choose/drop a video (first 90 s analysed). `buildFullReport`
+   (`engine/report.ts`, `scope: "full"`) scores every overhead clear **and** the ready stance
+   held between shots in one report: overall score = average of the stance score and the
+   clears score. Ready-stance moments are frames where the player faces the camera, is
+   still for ±250 ms, has the racket hand below the shoulder and is clear of any swing
+   (`stanceFrames`). Clear attempts that never reach head height (`LOW_SWING` thresholds)
+   are counted and flagged "Below head height", unless they fall in a real clear's
+   preparation or follow-through. Playback colours the skeleton with clear checks around
+   swings and stance checks elsewhere. Recorded clips from a live session stay per-move.
 
 ## Calibration
 

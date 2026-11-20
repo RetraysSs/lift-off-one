@@ -16,6 +16,15 @@ import { formatDate, formatDuration } from "@/lib/format";
 
 type Filter = "all" | Move;
 
+/** A session counts for a move if it is about that move, or is a full video analysis
+ * that scored it. */
+const covers = (s: Session, move: Move) =>
+  s.report.scope === "full"
+    ? move === "stance"
+      ? !!s.report.stance
+      : s.report.swings.length > 0
+    : s.move === move;
+
 function StatTile({
   label,
   value,
@@ -66,7 +75,7 @@ export function ProgressScreen({
 }) {
   const [filter, setFilter] = useState<Filter>("all");
   const shown = useMemo(
-    () => (filter === "all" ? sessions : sessions.filter((s) => s.move === filter)),
+    () => (filter === "all" ? sessions : sessions.filter((s) => covers(s, filter))),
     [sessions, filter],
   );
   const stats = summary(shown);

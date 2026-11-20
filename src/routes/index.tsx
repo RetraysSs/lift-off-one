@@ -36,12 +36,19 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-const EXAMPLES: Record<Move, ReportData> = {
+const EXAMPLES: Record<Move | "full", ReportData> = {
   clear: mockReport,
   stance: {
     move: "stance",
     score: mockStanceAnalysis.score,
     swings: [],
+    stance: mockStanceAnalysis,
+  },
+  full: {
+    move: "clear",
+    scope: "full",
+    score: Math.round(((mockStanceAnalysis.score ?? 0) + (mockReport.score ?? 0)) / 2),
+    swings: mockReport.swings,
     stance: mockStanceAnalysis,
   },
 };
@@ -138,7 +145,7 @@ function Index() {
 
   const openSession = (s: Session) =>
     setOpenReport({ report: s.report, date: s.date, source: s.source });
-  const showExample = (move: Move) =>
+  const showExample = (move: Move | "full") =>
     setOpenReport({ report: EXAMPLES[move], date: Date.now(), source: "example" });
 
   return (
